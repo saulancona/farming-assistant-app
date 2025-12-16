@@ -9,49 +9,8 @@ export default defineConfig(({ mode }) => ({
     drop: mode === 'production' ? ['console', 'debugger'] : [],
   },
   build: {
-    rollupOptions: {
-      output: {
-        manualChunks: (id) => {
-          // Core vendor chunks
-          if (id.includes('node_modules')) {
-            if (id.includes('react-dom') || id.includes('/react/')) {
-              return 'vendor-react';
-            }
-            if (id.includes('recharts') || id.includes('d3-')) {
-              return 'vendor-charts';
-            }
-            if (id.includes('framer-motion')) {
-              return 'vendor-motion';
-            }
-            if (id.includes('i18next')) {
-              return 'vendor-i18n';
-            }
-            if (id.includes('@supabase')) {
-              return 'vendor-supabase';
-            }
-            if (id.includes('date-fns')) {
-              return 'vendor-date';
-            }
-            if (id.includes('jspdf')) {
-              return 'vendor-pdf';
-            }
-            if (id.includes('@tanstack/react-query')) {
-              return 'vendor-query';
-            }
-            if (id.includes('lucide-react')) {
-              return 'vendor-icons';
-            }
-            if (id.includes('zustand') || id.includes('zod')) {
-              return 'vendor-state';
-            }
-            if (id.includes('dexie')) {
-              return 'vendor-dexie';
-            }
-          }
-          return undefined;
-        }
-      }
-    }
+    // Let Vite handle chunk splitting automatically to avoid React loading order issues
+    // Manual chunking was causing recharts to load before React was initialized
   },
   plugins: [
     react(),
