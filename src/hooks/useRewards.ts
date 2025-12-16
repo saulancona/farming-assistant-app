@@ -428,7 +428,7 @@ export function useRealTimeStats(userId: string | undefined) {
       // Fetch actual counts from tables in parallel
       const [fieldsResult, tasksResult, postsResult, listingsResult, expensesResult, incomeResult] = await Promise.all([
         supabase.from('fields').select('id', { count: 'exact', head: true }).eq('user_id', userId),
-        supabase.from('tasks').select('id', { count: 'exact', head: true }).eq('user_id', userId).eq('completed', true),
+        supabase.from('tasks').select('id', { count: 'exact', head: true }).eq('user_id', userId).not('completed_at', 'is', null),
         supabase.from('community_posts').select('id', { count: 'exact', head: true }).eq('user_id', userId),
         supabase.from('marketplace_listings').select('id', { count: 'exact', head: true }).eq('user_id', userId),
         supabase.from('expenses').select('id', { count: 'exact', head: true }).eq('user_id', userId),
