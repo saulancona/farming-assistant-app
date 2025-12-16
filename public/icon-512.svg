@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" rx="102" fill="#16a34a"/>
+  <g transform="translate(112, 96)" fill="white">
+    <!-- Main sprout/seed shape -->
+    <path d="M144 32c0 0-58 44-58 118c0 44 30 74 58 74s58-30 58-74C202 76 144 32 144 32z" fill="white" opacity="0.95"/>
+    <!-- Main stem -->
+    <path d="M144 136v184" stroke="white" stroke-width="24" stroke-linecap="round"/>
+    <!-- Large left leaf -->
+    <ellipse cx="72" cy="176" rx="54" ry="38" fill="white" opacity="0.9" transform="rotate(-30 72 176)"/>
+    <!-- Large right leaf -->
+    <ellipse cx="216" cy="176" rx="54" ry="38" fill="white" opacity="0.9" transform="rotate(30 216 176)"/>
+    <!-- Medium left leaf -->
+    <ellipse cx="92" cy="228" rx="32" ry="22" fill="white" opacity="0.85" transform="rotate(-20 92 228)"/>
+    <!-- Medium right leaf -->
+    <ellipse cx="196" cy="228" rx="32" ry="22" fill="white" opacity="0.85" transform="rotate(20 196 228)"/>
+    <!-- Small accent leaves near base -->
+    <ellipse cx="108" cy="270" rx="20" ry="14" fill="white" opacity="0.75" transform="rotate(-15 108 270)"/>
+    <ellipse cx="180" cy="270" rx="20" ry="14" fill="white" opacity="0.75" transform="rotate(15 180 270)"/>
+  </g>
+</svg>

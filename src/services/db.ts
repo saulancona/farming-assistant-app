@@ -2,13 +2,16 @@
 import Dexie, { type Table } from 'dexie';
 import type { Field, Expense, Task } from '../types';
 
+export type SyncEntityType = 'field' | 'expense' | 'task' | 'income' | 'inventory' | 'storage_bin';
+
 export interface SyncQueueItem {
   id?: number;
   operation: 'create' | 'update' | 'delete';
-  entityType: 'field' | 'expense' | 'task';
+  entityType: SyncEntityType;
   entityId: string;
-  data?: any;
+  data?: Record<string, unknown>;
   timestamp: number;
+  retryCount?: number;
 }
 
 export interface CachedWeather {
@@ -47,6 +50,11 @@ export class AgroAfricaDB extends Dexie {
     this.version(2).stores({
       weatherCache: '++id, location, timestamp',
       marketCache: '++id, timestamp'
+    });
+
+    // Version 3: Add retry count to sync queue
+    this.version(3).stores({
+      syncQueue: '++id, timestamp, entityType, retryCount'
     });
   }
 }

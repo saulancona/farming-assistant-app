@@ -2,18 +2,35 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="AgroAfrica" />
     <meta name="theme-color" content="#16a34a" />
     <meta name="description" content="AgroAfrica - Smart farming assistant for African farmers" />
-    <link rel="apple-touch-icon" href="/apple-touch-icon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.json" />
     <title>AgroAfrica</title>
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      // Global error handler for debugging blank screen issues
+      window.onerror = function(msg, url, line, col, error) {
+        var errorDiv = document.createElement('div');
+        errorDiv.style.cssText = 'position:fixed;top:0;left:0;right:0;padding:20px;background:red;color:white;z-index:9999;font-family:monospace;';
+        errorDiv.innerHTML = '<b>JavaScript Error:</b><br>' + msg + '<br>at ' + url + ':' + line;
+        document.body.appendChild(errorDiv);
+        return false;
+      };
+      window.addEventListener('unhandledrejection', function(event) {
+        var errorDiv = document.createElement('div');
+        errorDiv.style.cssText = 'position:fixed;top:0;left:0;right:0;padding:20px;background:orange;color:white;z-index:9999;font-family:monospace;';
+        errorDiv.innerHTML = '<b>Unhandled Promise Rejection:</b><br>' + (event.reason ? (event.reason.message || event.reason) : 'Unknown');
+        document.body.appendChild(errorDiv);
+      });
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
