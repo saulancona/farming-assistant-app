@@ -1,7 +1,8 @@
 import { lazy, Suspense } from 'react';
-import { Loader } from 'lucide-react';
+import { Loader, AlertTriangle, RefreshCw } from 'lucide-react';
 import { useUIStore, type Tab } from '../store/uiStore';
 import { useFarmOperations } from '../hooks/useFarmOperations';
+import ErrorBoundary from '../components/ErrorBoundary';
 import type {
   Field,
   Expense,
@@ -50,6 +51,34 @@ function PageLoader() {
       <div className="text-center">
         <Loader className="animate-spin text-green-600 mx-auto mb-3" size={32} />
         <p className="text-gray-500">Loading...</p>
+      </div>
+    </div>
+  );
+}
+
+// Section-level error fallback (less intrusive than full page error)
+function SectionErrorFallback({ onRetry }: { onRetry: () => void }) {
+  return (
+    <div className="bg-red-50 border border-red-200 rounded-xl p-6 m-4">
+      <div className="flex items-start gap-4">
+        <div className="flex-shrink-0">
+          <AlertTriangle className="text-red-500" size={24} />
+        </div>
+        <div className="flex-1">
+          <h3 className="text-lg font-semibold text-red-800 mb-1">
+            Something went wrong
+          </h3>
+          <p className="text-red-600 text-sm mb-4">
+            This section couldn't load properly. You can try again or navigate to another section.
+          </p>
+          <button
+            onClick={onRetry}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm"
+          >
+            <RefreshCw size={16} />
+            Try Again
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -285,5 +314,11 @@ export default function RouteContent({
     }
   };
 
-  return <Suspense fallback={<PageLoader />}>{renderContent()}</Suspense>;
+  return (
+    <ErrorBoundary
+      fallback={<SectionErrorFallback onRetry={() => window.location.reload()} />}
+    >
+      <Suspense fallback={<PageLoader />}>{renderContent()}</Suspense>
+    </ErrorBoundary>
+  );
 }
