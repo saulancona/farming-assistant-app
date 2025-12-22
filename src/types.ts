@@ -482,6 +482,106 @@ export interface StreakUpdateResult {
   isNewDay: boolean;
 }
 
+// Enhanced Streak System Types
+export type StreakActivityType =
+  | 'weather_check'
+  | 'price_check'
+  | 'task_complete'
+  | 'photo_upload'
+  | 'field_update'
+  | 'expense_logged'
+  | 'income_logged'
+  | 'community_post'
+  | 'learning_complete'
+  | 'mission_step'
+  | 'streak_save'
+  | 'app_open';
+
+export interface StreakActivity {
+  type: StreakActivityType;
+  name: string;
+  nameSw?: string;
+  time: string;
+}
+
+export interface StreakMilestone {
+  id: string;
+  streakDays: number;
+  rewardType: 'voice_tip' | 'badge' | 'points' | 'raffle';
+  rewardValue: number;
+  badgeId?: string;
+  voiceTipKey?: string;
+  name: string;
+  nameSw: string;
+  description: string;
+  descriptionSw: string;
+  icon: string;
+}
+
+export interface NextMilestone {
+  days: number;
+  daysRemaining: number;
+  name: string;
+  nameSw: string;
+  rewardType: string;
+  rewardValue: number;
+  icon: string;
+}
+
+export interface RecentMilestoneClaim {
+  milestoneDays: number;
+  name: string;
+  nameSw: string;
+  rewardType: string;
+  rewardValue: number;
+  icon: string;
+  claimedAt: string;
+}
+
+export interface StreakStatus {
+  currentStreak: number;
+  longestStreak: number;
+  lastActivityDate?: string;
+  streakAtRisk: boolean;
+  canSaveStreak: boolean;
+  streakSavesUsed: number;
+  lastStreakSave?: string;
+  monthlyRaffleEntries: number;
+  activitiesToday: StreakActivity[];
+  nextMilestone?: NextMilestone;
+  recentMilestones: RecentMilestoneClaim[];
+}
+
+export interface RecordActivityResult {
+  success: boolean;
+  currentStreak: number;
+  isFirstActivityToday: boolean;
+  streakXpAwarded: number;
+  activitiesToday: number;
+  wasStreakBroken: boolean;
+  milestonesClaimed: string[];
+}
+
+export interface SaveStreakResult {
+  success: boolean;
+  error?: string;
+  reason?: string;
+  streakSaved?: number;
+  message?: string;
+  xpAwarded?: number;
+}
+
+export interface StreakVoiceTip {
+  key: string;
+  title: string;
+  titleSw: string;
+  content: string;
+  contentSw: string;
+  audioUrl?: string;
+  audioUrlSw?: string;
+  category: string;
+}
+
 // Phase 3 Types - Messaging Features
 
 export interface Message {
@@ -888,12 +988,17 @@ export interface ReferralLeaderboardEntry {
 export type MissionStatus = 'active' | 'completed' | 'failed' | 'abandoned';
 export type MissionStepStatus = 'pending' | 'in_progress' | 'completed' | 'skipped';
 
+export type WeatherTrigger = 'rain_expected' | 'dry_spell' | 'frost_warning' | 'heat_wave' | null;
+
 export interface MissionStepDefinition {
   name: string;
   name_sw?: string;
   description: string;
   description_sw?: string;
   day_offset: number;
+  xp_reward?: number;
+  weather_trigger?: WeatherTrigger;
+  photo_required?: boolean;
 }
 
 export interface SeasonalMission {
@@ -928,6 +1033,10 @@ export interface UserMission {
   completedAt?: string;
   xpEarned: number;
   pointsEarned: number;
+  // Completion rewards
+  badgeAwarded?: boolean;
+  priorityMarketAccessUntil?: string;
+  doubleReferralPointsUntil?: string;
   // Joined fields
   missionName?: string;
   missionNameSw?: string;
@@ -952,6 +1061,10 @@ export interface MissionStepProgress {
   evidencePhotoUrl?: string;
   notes?: string;
   xpAwarded: number;
+  // Weather-triggered automation
+  weatherTrigger?: WeatherTrigger;
+  autoReminded?: boolean;
+  reminderSentAt?: string;
 }
 
 // Weekly Challenges
@@ -1115,7 +1228,40 @@ export interface CompleteMissionStepResult {
   progress?: number;
   xpAwarded: number;
   pointsAwarded?: number;
+  // Mission completion rewards
+  badgeAwarded?: boolean;
+  priorityMarketAccessUntil?: string;
+  doubleReferralPointsUntil?: string;
   error?: string;
+}
+
+// Recommended missions based on user's fields and weather
+export interface RecommendedMission {
+  id: string;
+  name: string;
+  nameSw?: string;
+  description: string;
+  descriptionSw?: string;
+  cropType?: string;
+  season: string;
+  xpReward: number;
+  pointsReward: number;
+  durationDays: number;
+  difficulty: 'easy' | 'medium' | 'hard';
+  matchedFieldId?: string;
+  matchedFieldName?: string;
+  matchScore: number; // 0-100 relevance score
+  reason: string;
+  reasonSw?: string;
+}
+
+// User's active reward bonuses
+export interface UserRewardBonuses {
+  hasPriorityMarketAccess: boolean;
+  priorityMarketAccessUntil?: string;
+  hasDoubleReferralPoints: boolean;
+  doubleReferralPointsUntil?: string;
+  activeBonusMissions: string[]; // mission IDs that granted active bonuses
 }
 
 export interface ProcessReferralResult {
@@ -1147,5 +1293,398 @@ export interface CalculateFarmerScoreResult {
   reliabilityScore: number;
   totalScore: number;
   tier: FarmerScoreTier;
+}
+
+// ==========================================
+// Photo Challenges & Diagnostic Rewards Types
+// ==========================================
+
+export type PhotoChallengeThemeType =
+  | 'pest_patrol'
+  | 'nutrient_deficiency'
+  | 'disease_detection'
+  | 'growth_tracking'
+  | 'harvest_quality';
+
+export type AISeverity = 'none' | 'low' | 'medium' | 'high' | 'critical';
+export type ChallengePhotoType = 'pest' | 'disease' | 'nutrient' | 'growth' | 'harvest' | 'general';
+
+export interface PhotoChallengeTheme {
+  id: string;
+  name: string;
+  nameSw: string;
+  description: string;
+  descriptionSw: string;
+  themeType: PhotoChallengeThemeType;
+  targetPhotosPerDay: number;
+  durationDays: number;
+  xpPerPhoto: number;
+  bonusXpClearPhoto: number;
+  bonusXpEarlyDetection: number;
+  bonusXpCorrectId: number;
+  pointsPerPhoto: number;
+  badgeId?: string;
+  isRecurring: boolean;
+  createdAt: string;
+}
+
+export interface WeeklyPhotoChallenge {
+  id: string;
+  themeId: string;
+  startDate: string;
+  endDate: string;
+  isActive: boolean;
+  totalParticipants: number;
+  createdAt: string;
+  // Joined theme info
+  themeName?: string;
+  themeNameSw?: string;
+  themeDescription?: string;
+  themeDescriptionSw?: string;
+  themeType?: PhotoChallengeThemeType;
+  targetPhotosPerDay?: number;
+  durationDays?: number;
+  xpPerPhoto?: number;
+  bonusXpClear?: number;
+  bonusXpEarly?: number;
+  bonusXpCorrect?: number;
+  pointsPerPhoto?: number;
+}
+
+export interface UserPhotoChallengeProgress {
+  id: string;
+  userId: string;
+  challengeId: string;
+  photosSubmitted: number;
+  photosTarget: number;
+  streakDays: number;
+  lastPhotoDate?: string;
+  totalXpEarned: number;
+  totalPointsEarned: number;
+  status: 'active' | 'completed' | 'expired';
+  completedAt?: string;
+  createdAt: string;
+}
+
+export interface ChallengePhotoSubmission {
+  id: string;
+  userId: string;
+  challengeId: string;
+  fieldId?: string;
+  cropType?: string;
+  photoUrl: string;
+  photoType: ChallengePhotoType;
+  // AI Analysis
+  aiConfidenceScore: number;
+  aiDetectedIssue?: string;
+  aiSeverity: AISeverity;
+  isEarlyDetection: boolean;
+  isClearPhoto: boolean;
+  isCorrectIdentification: boolean;
+  // Rewards
+  baseXpAwarded: number;
+  bonusXpAwarded: number;
+  pointsAwarded: number;
+  submittedAt: string;
+  reviewedAt?: string;
+}
+
+export interface CropPhotoCoverage {
+  cropType: string;
+  totalPhotos: number;
+  hasPestPhoto: boolean;
+  hasDiseasePhoto: boolean;
+  hasNutrientPhoto: boolean;
+  hasGrowthPhoto: boolean;
+  coverageComplete: boolean;
+  lastPhotoDate?: string;
+}
+
+export interface UserCropPhotoCoverage {
+  id: string;
+  userId: string;
+  cropType: string;
+  totalPhotos: number;
+  lastPhotoDate?: string;
+  hasPestPhoto: boolean;
+  hasDiseasePhoto: boolean;
+  hasNutrientPhoto: boolean;
+  hasGrowthPhoto: boolean;
+  coverageComplete: boolean;
+  updatedAt: string;
+}
+
+export interface ActivePhotoChallenge {
+  challengeId: string;
+  themeName: string;
+  themeNameSw: string;
+  themeDescription: string;
+  themeDescriptionSw: string;
+  themeType: PhotoChallengeThemeType;
+  targetPhotosPerDay: number;
+  durationDays: number;
+  xpPerPhoto: number;
+  bonusXpClear: number;
+  bonusXpEarly: number;
+  bonusXpCorrect: number;
+  pointsPerPhoto: number;
+  startDate: string;
+  endDate: string;
+  daysRemaining: number;
+  totalParticipants: number;
+  // User progress
+  userPhotosSubmitted: number;
+  userPhotosTarget: number;
+  userStreakDays: number;
+  userTotalXp: number;
+  userStatus: 'active' | 'completed' | 'expired';
+}
+
+export interface UserPhotoStats {
+  totalPhotos: number;
+  cropsCovered: number;
+  cropsComplete: number;
+  cropCoverage: CropPhotoCoverage[];
+  challengesCompleted: number;
+  challengesActive: number;
+  totalChallengeXp: number;
+  totalChallengePoints: number;
+  bestStreak: number;
+}
+
+export interface PhotoChallengeLeaderboardEntry {
+  userId: string;
+  fullName?: string;
+  avatarUrl?: string;
+  totalPhotos: number;
+  totalXp: number;
+  totalPoints: number;
+  earlyDetections: number;
+  correctIds: number;
+  lastSubmission?: string;
+  rank: number;
+}
+
+export interface SubmitPhotoResult {
+  success: boolean;
+  submissionId?: string;
+  baseXp: number;
+  bonusXp: number;
+  totalXp: number;
+  points: number;
+  bonuses: {
+    clearPhoto: boolean;
+    earlyDetection: boolean;
+    correctIdentification: boolean;
+  };
+  error?: string;
+}
+
+export interface PhotoBonusInfo {
+  type: 'clear_photo' | 'early_detection' | 'correct_identification';
+  name: string;
+  nameSw: string;
+  description: string;
+  descriptionSw: string;
+  xpBonus: number;
+  pointsBonus: number;
+  icon: string;
+}
+
+// ==========================================
+// Learning Leaderboard Types
+// ==========================================
+
+export interface LearningLeaderboardEntry {
+  userId: string;
+  fullName?: string;
+  avatarUrl?: string;
+  articlesCompleted: number;
+  videosCompleted: number;
+  totalLessons: number;
+  totalXp: number;
+  quizzesPassed: number;
+  currentStreak: number;
+  lastActivityDate?: string;
+  rank: number;
+}
+
+// ==========================================
+// Team Challenges Types
+// ==========================================
+
+export type TeamType = 'church' | 'coop' | 'youth_group' | 'village' | 'school' | 'other';
+export type TeamRole = 'leader' | 'member';
+export type TeamChallengeStatus = 'active' | 'completed' | 'failed' | 'expired';
+
+export interface Team {
+  id: string;
+  name: string;
+  nameSw?: string;
+  description?: string;
+  descriptionSw?: string;
+  teamType: TeamType;
+  leaderId: string;
+  inviteCode: string;
+  avatarUrl?: string;
+  location?: string;
+  isActive: boolean;
+  maxMembers: number;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface TeamMember {
+  userId: string;
+  role: TeamRole;
+  joinedAt: string;
+  fullName?: string;
+}
+
+export interface TeamStats {
+  totalMembers: number;
+  totalXp: number;
+  totalReferrals: number;
+  lessonsCompleted: number;
+  missionsCompleted: number;
+  photosSubmitted: number;
+  challengesCompleted: number;
+}
+
+export interface TeamAchievement {
+  name: string;
+  nameSw?: string;
+  icon: string;
+  description?: string;
+  descriptionSw?: string;
+  earnedAt: string;
+}
+
+export interface TeamDetails extends Team {
+  stats: TeamStats;
+  members: TeamMember[];
+  achievements: TeamAchievement[];
+}
+
+export interface TeamChallenge {
+  challengeId: string;
+  name: string;
+  nameSw?: string;
+  description?: string;
+  descriptionSw?: string;
+  challengeType: string;
+  targetCount: number;
+  xpReward: number;
+  pointsReward: number;
+  badgeName?: string;
+  badgeIcon?: string;
+  startDate: string;
+  endDate: string;
+  currentProgress: number;
+  status: TeamChallengeStatus;
+}
+
+export interface TeamLeaderboardEntry {
+  teamId: string;
+  name: string;
+  nameSw?: string;
+  teamType: TeamType;
+  avatarUrl?: string;
+  location?: string;
+  totalMembers: number;
+  totalXp: number;
+  totalReferrals: number;
+  challengesCompleted: number;
+  rank: number;
+}
+
+// ==========================================
+// STORY QUESTS (Crop Journey Documentation)
+// ==========================================
+
+export type StoryMilestoneType =
+  | 'land_before'    // Land before planting
+  | 'germination'    // Germination stage
+  | 'flowering'      // Flowering stage
+  | 'pre_harvest'    // Before harvest
+  | 'storage';       // Final storage/harvest
+
+export type StoryQuestStatus = 'active' | 'completed' | 'abandoned' | 'expired';
+
+export interface StoryQuestTemplate {
+  id: string;
+  name: string;
+  nameSw?: string;
+  description?: string;
+  descriptionSw?: string;
+  cropType: string;
+  pointsReward: number;
+  xpReward: number;
+  badgeName: string;
+  badgeIcon: string;
+  expectedDays: number;
+  grantsPriorityAccess: boolean;
+  featureStoryEligible: boolean;
+}
+
+export interface StoryQuestPhoto {
+  id: string;
+  milestoneType: StoryMilestoneType;
+  milestoneOrder: number;
+  photoUrl: string;
+  caption?: string;
+  uploadedAt: string;
+  aiHealthScore?: number;
+  aiIssues?: string[];
+}
+
+export interface UserStoryQuest {
+  id: string;
+  templateId: string;
+  fieldId?: string;
+  status: StoryQuestStatus;
+  milestonesCompleted: number;
+  startedAt: string;
+  targetDate: string;
+  completedAt?: string;
+  pointsAwarded: number;
+  xpAwarded: number;
+  badgeAwarded: boolean;
+  priorityAccessGranted: boolean;
+  priorityAccessExpires?: string;
+  template: StoryQuestTemplate;
+  photos: StoryQuestPhoto[];
+}
+
+export interface FeaturedStory {
+  id: string;
+  title: string;
+  titleSw?: string;
+  summary?: string;
+  summarySw?: string;
+  viewCount: number;
+  likeCount: number;
+  publishedAt: string;
+  farmer: {
+    id: string;
+    name: string;
+    avatarUrl?: string;
+    location?: string;
+  };
+  quest: {
+    cropType: string;
+    completedAt: string;
+  };
+  photos: {
+    milestoneType: StoryMilestoneType;
+    photoUrl: string;
+  }[];
+}
+
+export interface PriorityBuyerAccess {
+  hasAccess: boolean;
+  expiresAt?: string;
+  connectionsUsed?: number;
+  message?: string;
 }
 

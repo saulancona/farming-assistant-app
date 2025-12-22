@@ -22,6 +22,9 @@ import {
   Zap,
   Gift,
   UserPlus,
+  Camera,
+  UsersRound,
+  BookImage,
   type LucideIcon,
 } from 'lucide-react';
 import type { Tab } from '../store/uiStore';
@@ -96,8 +99,11 @@ export const navigationItems: NavigationItem[] = [
   { id: 'rewards', labelKey: 'navigation.rewards', labelDefault: 'Rewards', icon: Trophy, category: 'rewards' },
   { id: 'missions', labelKey: 'navigation.missions', labelDefault: 'Missions', icon: Target, category: 'rewards' },
   { id: 'challenges', labelKey: 'navigation.challenges', labelDefault: 'Challenges', icon: Zap, category: 'rewards' },
+  { id: 'photo-challenges', labelKey: 'navigation.photoChallenges', labelDefault: 'Photo Challenges', icon: Camera, category: 'rewards' },
   { id: 'shop', labelKey: 'navigation.shop', labelDefault: 'Shop', icon: Gift, category: 'rewards' },
   { id: 'referrals', labelKey: 'navigation.referrals', labelDefault: 'Referrals', icon: UserPlus, category: 'rewards' },
+  { id: 'teams', labelKey: 'navigation.teams', labelDefault: 'Teams', icon: UsersRound, category: 'rewards' },
+  { id: 'story-quests', labelKey: 'navigation.storyQuests', labelDefault: 'Story Quests', icon: BookImage, category: 'rewards' },
 
   // Settings category
   { id: 'settings', labelKey: 'navigation.settings', labelDefault: 'Settings', icon: SettingsIcon, category: 'settings' },
@@ -123,6 +129,7 @@ export const voiceLabelKeys: Record<Tab, string> = {
   rewards: 'navigation.rewardsVoice',
   missions: 'navigation.missionsVoice',
   challenges: 'navigation.challengesVoice',
+  'photo-challenges': 'navigation.photoChallengesVoice',
   shop: 'navigation.shopVoice',
   referrals: 'navigation.referralsVoice',
   learning: 'navigation.learningVoice',
@@ -134,4 +141,6 @@ export const voiceLabelKeys: Record<Tab, string> = {
   settings: 'navigation.settingsVoice',
   weather: 'navigation.weatherVoice',
   markets: 'navigation.marketsVoice',
+  teams: 'navigation.teamsVoice',
+  'story-quests': 'navigation.storyQuestsVoice',
 };

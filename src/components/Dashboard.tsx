@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { TrendingUp, TrendingDown, Sprout, DollarSign, MapPin, BarChart3, Flame, ChevronRight } from 'lucide-react';
+import { TrendingUp, TrendingDown, Sprout, DollarSign, MapPin, BarChart3, ChevronRight } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { format, startOfMonth, eachMonthOfInterval, subMonths, formatDistanceToNow, parseISO } from 'date-fns';
@@ -12,6 +12,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useRewardsProfile, useLevelDefinitions, useXPProgress, useRealTimeStats } from '../hooks/useRewards';
 import { useFarmerScore } from '../hooks/useFarmerScore';
 import { useUserPoints } from '../hooks/useRewardsShop';
+import { StreakWidgetCompact } from './rewards/StreakWidget';
 
 interface DashboardProps {
   stats: DashboardStats;
@@ -253,6 +254,17 @@ export default function Dashboard({ stats, expenses = [], income = [], fields = 
         <p className="text-gray-600 mt-1">{t('auth.welcome')}</p>
       </div>
 
+      {/* Daily Streak Widget - At the top */}
+      {user && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.05 }}
+        >
+          <StreakWidgetCompact userId={user.id} />
+        </motion.div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {statCards.map((card, index) => {
           // Create descriptive text for voice
@@ -308,10 +320,7 @@ export default function Dashboard({ stats, expenses = [], income = [], fields = 
                     <p className="text-emerald-100 text-xs">
                       {t('rewards.level', 'Level')} {rewardsProfile.currentLevel}
                     </p>
-                    <div className="flex items-center gap-1 bg-white/20 px-2 py-0.5 rounded-full">
-                      <Flame className="w-3 h-3 text-orange-300" />
-                      <span className="text-xs">{rewardsProfile.currentStreak}</span>
-                    </div>
+        {/* Streak shown in separate widget below */}
                   </div>
                   <p className="font-bold text-lg">
                     {isSwahili ? currentLevel?.nameSw : currentLevel?.name || 'Seedling'}

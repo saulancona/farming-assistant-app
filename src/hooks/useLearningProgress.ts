@@ -1,6 +1,19 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
-import type { VideoProgress, ArticleProgress, LearningStats } from '../types';
+import type { VideoProgress, ArticleProgress, LearningStats, LearningLeaderboardEntry } from '../types';
+
+// Helper to update challenge progress for learning completions
+async function updateLearningChallengeProgress(userId: string) {
+  try {
+    await supabase.rpc('update_challenge_progress', {
+      p_user_id: userId,
+      p_action: 'complete_lesson',
+      p_increment: 1,
+    });
+  } catch (error) {
+    console.error('Error updating challenge progress:', error);
+  }
+}
 
 // Helper function to convert snake_case to camelCase
 function toCamelCase(obj: any): any {
@@ -105,6 +118,9 @@ export function useUpdateVideoProgress() {
           p_stat_field: 'videos_completed',
           p_increment: 1
         });
+
+        // Update weekly challenge progress (target_action: 'complete_lesson')
+        await updateLearningChallengeProgress(userId);
       }
 
       return toCamelCase(data) as VideoProgress;
@@ -114,6 +130,7 @@ export function useUpdateVideoProgress() {
       queryClient.invalidateQueries({ queryKey: ['learningStats', variables.userId] });
       queryClient.invalidateQueries({ queryKey: ['rewardsProfile', variables.userId] });
       queryClient.invalidateQueries({ queryKey: ['userAchievements', variables.userId] });
+      queryClient.invalidateQueries({ queryKey: ['userChallengeProgress', variables.userId] });
     },
   });
 }
@@ -201,6 +218,9 @@ export function useUpdateArticleProgress() {
           p_stat_field: 'articles_completed',
           p_increment: 1
         });
+
+        // Update weekly challenge progress (target_action: 'complete_lesson')
+        await updateLearningChallengeProgress(userId);
       }
 
       return toCamelCase(data) as ArticleProgress;
@@ -210,6 +230,7 @@ export function useUpdateArticleProgress() {
       queryClient.invalidateQueries({ queryKey: ['learningStats', variables.userId] });
       queryClient.invalidateQueries({ queryKey: ['rewardsProfile', variables.userId] });
       queryClient.invalidateQueries({ queryKey: ['userAchievements', variables.userId] });
+      queryClient.invalidateQueries({ queryKey: ['userChallengeProgress', variables.userId] });
     },
   });
 }
@@ -329,6 +350,9 @@ export function useMarkVideoComplete() {
         p_increment: 1
       });
 
+      // Update weekly challenge progress (target_action: 'complete_lesson')
+      await updateLearningChallengeProgress(userId);
+
       return toCamelCase(data) as VideoProgress;
     },
     onSuccess: (_, variables) => {
@@ -336,6 +360,7 @@ export function useMarkVideoComplete() {
       queryClient.invalidateQueries({ queryKey: ['learningStats', variables.userId] });
       queryClient.invalidateQueries({ queryKey: ['rewardsProfile', variables.userId] });
       queryClient.invalidateQueries({ queryKey: ['userAchievements', variables.userId] });
+      queryClient.invalidateQueries({ queryKey: ['userChallengeProgress', variables.userId] });
     },
   });
 }
@@ -380,6 +405,9 @@ export function useMarkArticleComplete() {
         p_increment: 1
       });
 
+      // Update weekly challenge progress (target_action: 'complete_lesson')
+      await updateLearningChallengeProgress(userId);
+
       return toCamelCase(data) as ArticleProgress;
     },
     onSuccess: (_, variables) => {
@@ -387,6 +415,105 @@ export function useMarkArticleComplete() {
       queryClient.invalidateQueries({ queryKey: ['learningStats', variables.userId] });
       queryClient.invalidateQueries({ queryKey: ['rewardsProfile', variables.userId] });
       queryClient.invalidateQueries({ queryKey: ['userAchievements', variables.userId] });
+      queryClient.invalidateQueries({ queryKey: ['userChallengeProgress', variables.userId] });
     },
+  });
+}
+
+// ============================================
+// LEARNING LEADERBOARD HOOKS
+// ============================================
+
+/**
+ * Get learning leaderboard - top learners by XP and lessons completed
+ */
+export function useLearningLeaderboard(limit: number = 10) {
+  return useQuery({
+    queryKey: ['learningLeaderboard', limit],
+    queryFn: async (): Promise<LearningLeaderboardEntry[]> => {
+      const { data, error } = await supabase.rpc('get_learning_leaderboard', {
+        p_limit: limit,
+      });
+
+      if (error) {
+        // Fallback to direct view query if function doesn't exist yet
+        const { data: viewData, error: viewError } = await supabase
+          .from('learning_leaderboard')
+          .select('*')
+          .limit(limit);
+
+        if (viewError) throw viewError;
+
+        return (viewData || []).map((row: Record<string, unknown>, index: number) => ({
+          userId: row.user_id as string,
+          fullName: row.full_name as string | undefined,
+          avatarUrl: row.avatar_url as string | undefined,
+          articlesCompleted: (row.articles_completed as number) || 0,
+          videosCompleted: (row.videos_completed as number) || 0,
+          totalLessons: (row.total_lessons as number) || 0,
+          totalXp: (row.total_xp as number) || 0,
+          quizzesPassed: (row.quizzes_passed as number) || 0,
+          currentStreak: (row.current_streak as number) || 0,
+          lastActivityDate: row.last_activity_date as string | undefined,
+          rank: index + 1,
+        }));
+      }
+
+      return (data || []).map((row: Record<string, unknown>) => ({
+        userId: row.user_id as string,
+        fullName: row.full_name as string | undefined,
+        avatarUrl: row.avatar_url as string | undefined,
+        articlesCompleted: (row.articles_completed as number) || 0,
+        videosCompleted: (row.videos_completed as number) || 0,
+        totalLessons: (row.total_lessons as number) || 0,
+        totalXp: (row.total_xp as number) || 0,
+        quizzesPassed: (row.quizzes_passed as number) || 0,
+        currentStreak: (row.current_streak as number) || 0,
+        lastActivityDate: row.last_activity_date as string | undefined,
+        rank: (row.rank as number) || 0,
+      }));
+    },
+    staleTime: 60000, // 1 minute
+  });
+}
+
+/**
+ * Get user's learning rank
+ */
+export function useUserLearningRank(userId: string | undefined) {
+  return useQuery({
+    queryKey: ['userLearningRank', userId],
+    queryFn: async () => {
+      if (!userId) return { rank: null, totalUsers: 0 };
+
+      const { data, error } = await supabase.rpc('get_user_learning_rank', {
+        p_user_id: userId,
+      });
+
+      if (error) {
+        // Fallback: calculate rank from view
+        const { data: leaderboard, error: lbError } = await supabase
+          .from('learning_leaderboard')
+          .select('user_id, total_xp');
+
+        if (lbError) throw lbError;
+
+        const userIndex = leaderboard?.findIndex(
+          (entry: { user_id: string }) => entry.user_id === userId
+        );
+
+        return {
+          rank: userIndex !== undefined && userIndex >= 0 ? userIndex + 1 : null,
+          totalUsers: leaderboard?.length || 0,
+        };
+      }
+
+      const result = data?.[0] || { rank: null, total_users: 0 };
+      return {
+        rank: result.rank as number | null,
+        totalUsers: (result.total_users as number) || 0,
+      };
+    },
+    enabled: !!userId,
   });
 }

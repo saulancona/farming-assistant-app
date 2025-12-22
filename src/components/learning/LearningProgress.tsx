@@ -1,7 +1,7 @@
 import { motion } from 'framer-motion';
-import { BookOpen, Video, Clock, TrendingUp, Target, CheckCircle2, PlayCircle } from 'lucide-react';
+import { BookOpen, Video, Clock, TrendingUp, Target, CheckCircle2, PlayCircle, Trophy, Medal, Award, Flame } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { useLearningStats, useVideoProgress, useArticleProgress } from '../../hooks/useLearningProgress';
+import { useLearningStats, useVideoProgress, useArticleProgress, useLearningLeaderboard, useUserLearningRank } from '../../hooks/useLearningProgress';
 
 interface LearningProgressProps {
   userId: string | undefined;
@@ -12,6 +12,10 @@ export default function LearningProgress({ userId }: LearningProgressProps) {
   const { data: stats, isLoading } = useLearningStats(userId);
   const { data: recentVideos } = useVideoProgress(userId);
   const { data: recentArticles } = useArticleProgress(userId);
+  const { data: leaderboard } = useLearningLeaderboard(10);
+  const { data: userRankData } = useUserLearningRank(userId);
+  const userRank = userRankData?.rank ?? null;
+  const totalUsers = userRankData?.totalUsers ?? 0;
 
   if (isLoading) {
     return (
@@ -245,15 +249,129 @@ export default function LearningProgress({ userId }: LearningProgressProps) {
         )}
       </motion.div>
 
-      {/* Tips */}
+      {/* Learning Leaderboard */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.4 }}
+        className="bg-white dark:bg-gray-800 rounded-xl p-4 shadow-sm border border-gray-100 dark:border-gray-700"
+      >
+        <h3 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+          <Trophy className="w-5 h-5 text-yellow-500" />
+          {t('learning.topLearners', 'Top Learners')}
+        </h3>
+
+        {/* User's rank if not in top 10 */}
+        {userRank && userRank > 10 && (
+          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg p-3 mb-4">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-blue-500 text-white flex items-center justify-center font-bold text-sm">
+                #{userRank}
+              </div>
+              <div className="flex-1">
+                <p className="font-medium text-blue-700 dark:text-blue-300">
+                  {t('learning.yourRank', 'Your Rank')}
+                </p>
+                <p className="text-xs text-blue-600 dark:text-blue-400">
+                  {t('learning.outOf', 'out of')} {totalUsers} {t('learning.learners', 'learners')}
+                </p>
+              </div>
+              <TrendingUp className="w-5 h-5 text-blue-500" />
+            </div>
+          </div>
+        )}
+
+        {leaderboard && leaderboard.length > 0 ? (
+          <div className="space-y-2">
+            {leaderboard.map((entry, index) => {
+              const isCurrentUser = entry.userId === userId;
+              const rankIcons = [
+                { icon: Trophy, color: 'text-yellow-500', bg: 'bg-yellow-100 dark:bg-yellow-900/30' },
+                { icon: Medal, color: 'text-gray-400', bg: 'bg-gray-100 dark:bg-gray-800' },
+                { icon: Award, color: 'text-amber-600', bg: 'bg-amber-100 dark:bg-amber-900/30' },
+              ];
+              const RankIcon = index < 3 ? rankIcons[index] : null;
+
+              return (
+                <motion.div
+                  key={entry.userId}
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: index * 0.05 }}
+                  className={`flex items-center gap-3 p-3 rounded-lg ${
+                    isCurrentUser
+                      ? 'bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700'
+                      : 'bg-gray-50 dark:bg-gray-700/50'
+                  }`}
+                >
+                  {/* Rank */}
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                    RankIcon ? RankIcon.bg : 'bg-gray-100 dark:bg-gray-700'
+                  }`}>
+                    {RankIcon ? (
+                      <RankIcon.icon className={`w-4 h-4 ${RankIcon.color}`} />
+                    ) : (
+                      <span className="text-sm font-bold text-gray-600 dark:text-gray-400">
+                        {entry.rank}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* User Info */}
+                  <div className="flex-1 min-w-0">
+                    <p className={`font-medium truncate ${
+                      isCurrentUser
+                        ? 'text-blue-700 dark:text-blue-300'
+                        : 'text-gray-900 dark:text-white'
+                    }`}>
+                      {entry.fullName || `${t('learning.learner', 'Learner')} ${entry.rank}`}
+                      {isCurrentUser && (
+                        <span className="ml-2 text-xs bg-blue-500 text-white px-1.5 py-0.5 rounded">
+                          {t('learning.you', 'You')}
+                        </span>
+                      )}
+                    </p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      {entry.totalLessons} {t('learning.lessons', 'lessons')} • {entry.articlesCompleted} {t('learning.articles', 'articles')} • {entry.videosCompleted} {t('learning.videos', 'videos')}
+                    </p>
+                  </div>
+
+                  {/* Stats */}
+                  <div className="text-right">
+                    <p className="font-bold text-gray-900 dark:text-white">
+                      {entry.totalXp.toLocaleString()} XP
+                    </p>
+                    {entry.currentStreak > 0 && (
+                      <div className="flex items-center gap-1 justify-end">
+                        <Flame className="w-3 h-3 text-orange-500" />
+                        <span className="text-xs text-gray-500 dark:text-gray-400">
+                          {entry.currentStreak}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </motion.div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="text-center py-6 text-gray-500 dark:text-gray-400">
+            <Trophy className="w-12 h-12 mx-auto mb-2 opacity-50" />
+            <p>{t('learning.noLeaderboard', 'No leaderboard data yet')}</p>
+            <p className="text-sm">{t('learning.startLearningToRank', 'Complete lessons to appear here!')}</p>
+          </div>
+        )}
+      </motion.div>
+
+      {/* Tips */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.5 }}
         className="bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/20 rounded-xl p-4 border border-amber-200 dark:border-amber-800"
       >
         <h3 className="font-semibold text-amber-900 dark:text-amber-200 mb-2">
-          💡 {t('learning.tips', 'Learning Tips')}
+          {t('learning.tips', 'Learning Tips')}
         </h3>
         <ul className="space-y-1 text-sm text-amber-800 dark:text-amber-300">
           <li>• {t('learning.tip1', 'Complete lessons to earn XP and unlock achievements')}</li>

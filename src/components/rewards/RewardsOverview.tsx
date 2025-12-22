@@ -1,14 +1,19 @@
 import { useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Trophy, Flame, Star, TrendingUp, Target, Award, ChevronRight, Coins } from 'lucide-react';
+import { Trophy, Flame, Star, TrendingUp, Target, Award, ChevronRight, Coins, Camera } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useRewardsProfile, useLevelDefinitions, useXPProgress, useUserAchievements, useRealTimeStats, useSyncRewardsStats } from '../../hooks/useRewards';
 import { useLearningStats } from '../../hooks/useLearningProgress';
 import { useRecalculateFarmerScore } from '../../hooks/useFarmerScore';
 import { useUserPoints } from '../../hooks/useRewardsShop';
+import { useUserPhotoStats } from '../../hooks/usePhotoChallenges';
 import AchievementGrid from './AchievementGrid';
 import Leaderboard from './Leaderboard';
 import FarmerScoreCard from './FarmerScoreCard';
+import StreakWidget from './StreakWidget';
+import { PhotoChallengesWidget } from '../challenges/PhotoChallenges';
+import { TeamWidget } from '../teams/TeamDashboard';
+import { StoryQuestsWidget } from '../story-quests/StoryQuestsDashboard';
 
 interface RewardsOverviewProps {
   userId: string | undefined;
@@ -23,6 +28,7 @@ export default function RewardsOverview({ userId, onNavigate }: RewardsOverviewP
   const { data: learningStats } = useLearningStats(userId);
   const { data: realTimeStats } = useRealTimeStats(userId);
   const { data: userPoints } = useUserPoints(userId);
+  const { data: photoStats } = useUserPhotoStats(userId || '');
   const xpProgress = useXPProgress(userId);
   const syncStatsMutation = useSyncRewardsStats();
   const recalculateScoreMutation = useRecalculateFarmerScore();
@@ -53,6 +59,18 @@ export default function RewardsOverview({ userId, onNavigate }: RewardsOverviewP
     <div className="space-y-6 pb-6">
       {/* Farmer Score Card */}
       <FarmerScoreCard userId={userId} />
+
+      {/* Daily Streak Widget */}
+      <StreakWidget userId={userId} />
+
+      {/* Photo Challenges Widget */}
+      <PhotoChallengesWidget userId={userId} onClick={() => onNavigate?.('photo-challenges')} />
+
+      {/* Team Widget */}
+      <TeamWidget userId={userId} onClick={() => onNavigate?.('teams')} />
+
+      {/* Story Quests Widget */}
+      <StoryQuestsWidget userId={userId || ''} onClick={() => onNavigate?.('story-quests')} />
 
       {/* Header with Level & XP */}
       <motion.div
@@ -183,6 +201,35 @@ export default function RewardsOverview({ userId, onNavigate }: RewardsOverviewP
           </p>
         </motion.div>
       </div>
+
+      {/* Photo Challenge Stats Card */}
+      {photoStats && photoStats.totalPhotos > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.45 }}
+          className="bg-gradient-to-br from-violet-500 to-purple-600 rounded-xl p-4 shadow-sm cursor-pointer hover:shadow-md transition-shadow"
+          onClick={() => onNavigate?.('photo-challenges')}
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center">
+                <Camera className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <p className="text-violet-100 text-sm">{t('rewards.photoChallenge', 'Photo Challenges')}</p>
+                <p className="text-2xl font-bold text-white">
+                  {photoStats.totalPhotos} {t('rewards.photos', 'photos')}
+                </p>
+              </div>
+            </div>
+            <div className="text-right">
+              <p className="text-violet-100 text-sm">{photoStats.totalChallengeXp} XP</p>
+              <p className="text-white font-medium">{photoStats.challengesCompleted} {t('rewards.challenges', 'challenges')}</p>
+            </div>
+          </div>
+        </motion.div>
+      )}
 
       {/* Points Balance Card */}
       <motion.div

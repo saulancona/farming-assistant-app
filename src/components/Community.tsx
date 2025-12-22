@@ -13,7 +13,10 @@ import {
   Award,
   Send,
   X,
-  Mail
+  Mail,
+  MoreVertical,
+  Edit3,
+  Trash2
 } from 'lucide-react';
 import type { CommunityPost } from '../types';
 import TalkingButton from './TalkingButton';
@@ -22,26 +25,40 @@ import { useAuth } from '../contexts/AuthContext';
 import {
   getCommunityPosts,
   addCommunityPost,
+  updateCommunityPost,
+  deleteCommunityPost,
   likeCommunityPost,
   unlikeCommunityPost,
   hasUserLikedPost
 } from '../services/database';
+import { useUpdateChallengeProgress } from '../hooks/useChallenges';
 
 export default function Community() {
   const { t } = useTranslation();
   const { user } = useAuth();
+  const updateChallengeProgress = useUpdateChallengeProgress();
   const [activeTab, setActiveTab] = useState<'forum' | 'knowledge' | 'stories'>('forum');
   const [posts, setPosts] = useState<CommunityPost[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [showNewPostModal, setShowNewPostModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [editingPost, setEditingPost] = useState<CommunityPost | null>(null);
+  const [postMenuOpen, setPostMenuOpen] = useState<string | null>(null);
 
   // New post form state
   const [newPostType, setNewPostType] = useState<'question' | 'tip' | 'success_story' | 'discussion'>('question');
   const [newPostTitle, setNewPostTitle] = useState('');
   const [newPostContent, setNewPostContent] = useState('');
   const [newPostTags, setNewPostTags] = useState('');
+
+  // Edit post form state
+  const [editPostType, setEditPostType] = useState<'question' | 'tip' | 'success_story' | 'discussion'>('question');
+  const [editPostTitle, setEditPostTitle] = useState('');
+  const [editPostContent, setEditPostContent] = useState('');
+  const [editPostTags, setEditPostTags] = useState('');
 
   const categories = [
     { id: 'all', label: t('common.all', 'All'), icon: MessageCircle },
@@ -150,6 +167,12 @@ export default function Community() {
       // Add the new post to the list
       setPosts([newPost, ...posts]);
 
+      // Update weekly challenge progress (target_action: 'community_post')
+      updateChallengeProgress.mutate({
+        userId: user.id,
+        action: 'community_post',
+      });
+
       // Reset form and close modal
       setNewPostTitle('');
       setNewPostContent('');
@@ -159,6 +182,71 @@ export default function Community() {
     } catch (error) {
       console.error('Error creating post:', error);
       toast.error('Failed to create post. Please try again.');
+    }
+  };
+
+  const handleEditPost = (post: CommunityPost) => {
+    setEditingPost(post);
+    setEditPostType(post.type);
+    setEditPostTitle(post.title);
+    setEditPostContent(post.content);
+    setEditPostTags(post.tags?.join(', ') || '');
+    setShowEditModal(true);
+    setPostMenuOpen(null);
+  };
+
+  const handleUpdatePost = async () => {
+    if (!editingPost || !user) return;
+
+    if (!editPostTitle.trim() || !editPostContent.trim()) {
+      toast.error('Please fill in title and content');
+      return;
+    }
+
+    try {
+      const tags = editPostTags.split(',').map(tag => tag.trim()).filter(tag => tag);
+
+      await updateCommunityPost(editingPost.id, {
+        type: editPostType,
+        title: editPostTitle.trim(),
+        content: editPostContent.trim(),
+        tags
+      });
+
+      // Update local state
+      setPosts(posts.map(p =>
+        p.id === editingPost.id
+          ? { ...p, type: editPostType, title: editPostTitle.trim(), content: editPostContent.trim(), tags }
+          : p
+      ));
+
+      toast.success('Post updated successfully');
+      setShowEditModal(false);
+      setEditingPost(null);
+    } catch (error) {
+      console.error('Error updating post:', error);
+      toast.error('Failed to update post. Please try again.');
+    }
+  };
+
+  const handleDeleteClick = (post: CommunityPost) => {
+    setEditingPost(post);
+    setShowDeleteConfirm(true);
+    setPostMenuOpen(null);
+  };
+
+  const handleDeletePost = async () => {
+    if (!editingPost) return;
+
+    try {
+      await deleteCommunityPost(editingPost.id);
+      setPosts(posts.filter(p => p.id !== editingPost.id));
+      toast.success('Post deleted successfully');
+      setShowDeleteConfirm(false);
+      setEditingPost(null);
+    } catch (error) {
+      console.error('Error deleting post:', error);
+      toast.error('Failed to delete post. Please try again.');
     }
   };
 
@@ -321,7 +409,47 @@ export default function Community() {
                     </span>
                   </div>
                 </div>
-                <ReadButton text={`${post.title}. ${post.content}`} size="sm" />
+                <div className="flex items-center gap-2">
+                  <ReadButton text={`${post.title}. ${post.content}`} size="sm" />
+                  {/* Edit/Delete menu for post author */}
+                  {user && post.authorId === user.id && (
+                    <div className="relative">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setPostMenuOpen(postMenuOpen === post.id ? null : post.id);
+                        }}
+                        className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                      >
+                        <MoreVertical size={18} className="text-gray-500" />
+                      </button>
+                      {postMenuOpen === post.id && (
+                        <div className="absolute right-0 top-full mt-1 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-10 min-w-[120px]">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleEditPost(post);
+                            }}
+                            className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2"
+                          >
+                            <Edit3 size={14} />
+                            {t('common.edit', 'Edit')}
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteClick(post);
+                            }}
+                            className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
+                          >
+                            <Trash2 size={14} />
+                            {t('common.delete', 'Delete')}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Post Content */}
@@ -466,6 +594,142 @@ export default function Community() {
                 >
                   <Send size={18} />
                   {t('community.publish', 'Publish')}
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Edit Post Modal */}
+      {showEditModal && editingPost && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-xl shadow-xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-2xl font-bold text-gray-900">
+                {t('community.editPost', 'Edit Post')}
+              </h2>
+              <button
+                onClick={() => {
+                  setShowEditModal(false);
+                  setEditingPost(null);
+                }}
+                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <X size={24} />
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  {t('community.postType', 'Post Type')}
+                </label>
+                <select
+                  value={editPostType}
+                  onChange={(e) => setEditPostType(e.target.value as typeof editPostType)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                >
+                  <option value="question">{t('community.question', 'Question')}</option>
+                  <option value="tip">{t('community.tip', 'Tip')}</option>
+                  <option value="success_story">{t('community.successStory', 'Success Story')}</option>
+                  <option value="discussion">{t('community.discussion', 'Discussion')}</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  {t('community.title', 'Title')}
+                </label>
+                <input
+                  type="text"
+                  value={editPostTitle}
+                  onChange={(e) => setEditPostTitle(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  {t('community.content', 'Content')}
+                </label>
+                <textarea
+                  rows={6}
+                  value={editPostContent}
+                  onChange={(e) => setEditPostContent(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  {t('community.tags', 'Tags')}
+                </label>
+                <input
+                  type="text"
+                  value={editPostTags}
+                  onChange={(e) => setEditPostTags(e.target.value)}
+                  placeholder={t('community.tagsPlaceholder', 'e.g. maize, planting, pest-control')}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                />
+              </div>
+              <div className="flex gap-3 pt-4">
+                <button
+                  onClick={() => {
+                    setShowEditModal(false);
+                    setEditingPost(null);
+                  }}
+                  className="flex-1 px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+                >
+                  {t('common.cancel', 'Cancel')}
+                </button>
+                <button
+                  onClick={handleUpdatePost}
+                  className="flex-1 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium flex items-center justify-center gap-2"
+                >
+                  <Edit3 size={18} />
+                  {t('common.save', 'Save Changes')}
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && editingPost && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-xl shadow-xl p-6 max-w-md w-full"
+          >
+            <div className="text-center">
+              <div className="mx-auto w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mb-4">
+                <Trash2 className="text-red-600" size={24} />
+              </div>
+              <h2 className="text-xl font-bold text-gray-900 mb-2">
+                {t('community.deletePost', 'Delete Post')}
+              </h2>
+              <p className="text-gray-600 mb-6">
+                {t('community.deleteConfirm', 'Are you sure you want to delete this post? This action cannot be undone.')}
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    setShowDeleteConfirm(false);
+                    setEditingPost(null);
+                  }}
+                  className="flex-1 px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+                >
+                  {t('common.cancel', 'Cancel')}
+                </button>
+                <button
+                  onClick={handleDeletePost}
+                  className="flex-1 px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium flex items-center justify-center gap-2"
+                >
+                  <Trash2 size={18} />
+                  {t('common.delete', 'Delete')}
                 </button>
               </div>
             </div>

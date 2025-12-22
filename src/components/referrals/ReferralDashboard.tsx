@@ -10,8 +10,11 @@ import {
   ChevronRight,
   Crown,
   Target,
-  Sparkles,
   MessageCircle,
+  Phone,
+  Sun,
+  CreditCard,
+  Star,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -20,11 +23,14 @@ import {
   useReferralHistory,
   useReferralLeaderboard,
   useCheckReferralMilestones,
+  useRecordReferralShare,
   getReferralTierInfo,
-  getMilestoneInfo,
+  getEnhancedMilestoneInfo,
+  getReferrerBadgeInfo,
   generateReferralLink,
   getShareMessage,
 } from '../../hooks/useReferrals';
+import { useMicroWinStore } from '../../hooks/useMicroWins';
 
 interface ReferralDashboardProps {
   userId: string | undefined;
@@ -39,9 +45,39 @@ export default function ReferralDashboard({ userId }: ReferralDashboardProps) {
   const { data: history } = useReferralHistory(userId);
   const { data: leaderboard } = useReferralLeaderboard(10);
   const checkMilestones = useCheckReferralMilestones();
+  const recordShare = useRecordReferralShare();
+  const { addToast } = useMicroWinStore();
 
   const [copied, setCopied] = useState(false);
   const [activeTab, setActiveTab] = useState<'overview' | 'referrals' | 'leaderboard'>('overview');
+
+  // Show instant gratification toast after recording share
+  const showInstantGratificationToast = (result: {
+    message: string;
+    messageSw: string;
+    shareCount: number;
+    badgeAwarded?: string;
+    referrerBadge: string;
+  }) => {
+    const badgeInfo = getReferrerBadgeInfo(result.referrerBadge);
+
+    addToast({
+      type: 'badge',
+      message: result.badgeAwarded
+        ? `${result.message} ${badgeInfo.icon} ${badgeInfo.name} unlocked!`
+        : result.message,
+      messageSw: result.badgeAwarded
+        ? `${result.messageSw} ${badgeInfo.icon} ${badgeInfo.nameSw} imefunguliwa!`
+        : result.messageSw,
+      xp: result.badgeAwarded ? 5 : 0,
+      badgeProgress: {
+        badgeType: 'referrer',
+        currentProgress: result.shareCount,
+        targetProgress: result.shareCount < 5 ? 5 : result.shareCount < 15 ? 15 : result.shareCount < 30 ? 30 : 50,
+        justCompleted: !!result.badgeAwarded,
+      },
+    });
+  };
 
   const handleCopyCode = () => {
     if (referralCode?.code) {
@@ -52,13 +88,26 @@ export default function ReferralDashboard({ userId }: ReferralDashboardProps) {
   };
 
   const handleShare = async () => {
-    if (!referralCode?.code) return;
+    if (!referralCode?.code || !userId) return;
 
     const shareData = {
       title: 'Join AgroAfrica',
       text: getShareMessage(referralCode.code, isSwahili ? 'sw' : 'en'),
       url: generateReferralLink(referralCode.code),
     };
+
+    // Record the share for instant gratification BEFORE actual share
+    try {
+      const result = await recordShare.mutateAsync({
+        userId,
+        shareMethod: 'native_share',
+      });
+      if (result.success) {
+        showInstantGratificationToast(result);
+      }
+    } catch (err) {
+      // Continue with share even if recording fails
+    }
 
     if (navigator.share) {
       try {
@@ -74,8 +123,22 @@ export default function ReferralDashboard({ userId }: ReferralDashboardProps) {
     }
   };
 
-  const handleWhatsAppShare = () => {
-    if (!referralCode?.code) return;
+  const handleWhatsAppShare = async () => {
+    if (!referralCode?.code || !userId) return;
+
+    // Record the share for instant gratification BEFORE actual share
+    try {
+      const result = await recordShare.mutateAsync({
+        userId,
+        shareMethod: 'whatsapp',
+      });
+      if (result.success) {
+        showInstantGratificationToast(result);
+      }
+    } catch (err) {
+      // Continue with share even if recording fails
+    }
+
     const message = encodeURIComponent(getShareMessage(referralCode.code, isSwahili ? 'sw' : 'en'));
     window.open(`https://wa.me/?text=${message}`, '_blank');
   };
@@ -90,7 +153,7 @@ export default function ReferralDashboard({ userId }: ReferralDashboardProps) {
   }
 
   const tierInfo = getReferralTierInfo(stats?.currentTier || 'starter');
-  const milestones = getMilestoneInfo();
+  const enhancedMilestones = getEnhancedMilestoneInfo();
   const activatedCount = stats?.activatedReferrals || 0;
 
   return (
@@ -225,15 +288,15 @@ export default function ReferralDashboard({ userId }: ReferralDashboardProps) {
             exit={{ opacity: 0, x: 20 }}
             className="space-y-4"
           >
-            {/* Milestones */}
+            {/* Enhanced Milestones with Physical Rewards */}
             <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-100 dark:border-gray-700">
               <h3 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
                 <Target className="w-5 h-5 text-emerald-500" />
                 {t('referrals.milestones', 'Milestones')}
               </h3>
 
-              <div className="space-y-3">
-                {milestones.map((milestone, index) => {
+              <div className="space-y-4">
+                {enhancedMilestones.map((milestone, index) => {
                   const isComplete = activatedCount >= milestone.count;
                   const isClaimed =
                     (milestone.count === 3 && stats?.milestone3Claimed) ||
@@ -243,69 +306,162 @@ export default function ReferralDashboard({ userId }: ReferralDashboardProps) {
                     (milestone.count === 100 && stats?.milestone100Claimed);
                   const progress = Math.min((activatedCount / milestone.count) * 100, 100);
 
+                  // Get icon for physical reward
+                  const getPhysicalRewardIcon = (reward: string | null) => {
+                    if (!reward) return null;
+                    if (reward.includes('airtime')) return <Phone className="w-3.5 h-3.5" />;
+                    if (reward.includes('voucher') || reward.includes('Input')) return <Gift className="w-3.5 h-3.5" />;
+                    if (reward.includes('Solar') || reward.includes('light')) return <Sun className="w-3.5 h-3.5" />;
+                    if (reward.includes('credit') || reward.includes('Agro')) return <CreditCard className="w-3.5 h-3.5" />;
+                    if (reward.includes('VIP') || reward.includes('Premium')) return <Star className="w-3.5 h-3.5" />;
+                    return <Gift className="w-3.5 h-3.5" />;
+                  };
+
                   return (
-                    <div key={index} className="relative">
-                      <div className="flex items-center justify-between mb-1">
+                    <motion.div
+                      key={index}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: index * 0.05 }}
+                      className={`relative p-3 rounded-lg border ${
+                        isComplete
+                          ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800'
+                          : 'bg-gray-50 dark:bg-gray-900/30 border-gray-200 dark:border-gray-700'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between mb-2">
                         <div className="flex items-center gap-2">
-                          <span className={`text-lg ${isComplete ? '' : 'grayscale opacity-50'}`}>
+                          <span className={`text-xl ${isComplete ? '' : 'grayscale opacity-50'}`}>
                             {isComplete ? '🎉' : '🎯'}
                           </span>
-                          <span className={`text-sm font-medium ${
-                            isComplete ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-600 dark:text-gray-400'
-                          }`}>
-                            {milestone.count} {t('referrals.friends', 'Friends')}
-                          </span>
+                          <div>
+                            <span className={`text-sm font-semibold ${
+                              isComplete ? 'text-emerald-700 dark:text-emerald-300' : 'text-gray-700 dark:text-gray-300'
+                            }`}>
+                              {milestone.count} {t('referrals.friends', 'Friends')}
+                            </span>
+                            {milestone.title && (
+                              <span className="ml-2 text-xs bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 px-2 py-0.5 rounded-full">
+                                {milestone.title}
+                              </span>
+                            )}
+                          </div>
                         </div>
                         <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium text-amber-500">
-                            +{milestone.points} pts
-                          </span>
                           {isComplete && !isClaimed && (
-                            <button
+                            <motion.button
+                              initial={{ scale: 0.9 }}
+                              animate={{ scale: [1, 1.05, 1] }}
+                              transition={{ duration: 0.5, repeat: Infinity, repeatDelay: 1 }}
                               onClick={() => userId && checkMilestones.mutate(userId)}
-                              className="text-xs bg-emerald-500 text-white px-2 py-1 rounded-full"
+                              className="text-xs bg-emerald-500 text-white px-3 py-1.5 rounded-full font-medium shadow-sm hover:bg-emerald-600 transition-colors"
                             >
                               {t('referrals.claim', 'Claim')}
-                            </button>
+                            </motion.button>
                           )}
                           {isClaimed && (
-                            <Check className="w-4 h-4 text-emerald-500" />
+                            <div className="flex items-center gap-1 text-emerald-500">
+                              <Check className="w-4 h-4" />
+                              <span className="text-xs font-medium">{t('referrals.claimed', 'Claimed')}</span>
+                            </div>
                           )}
                         </div>
                       </div>
+
+                      {/* Rewards row */}
+                      <div className="flex flex-wrap items-center gap-2 mb-2">
+                        <span className="text-xs bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 px-2 py-0.5 rounded-full font-medium">
+                          +{milestone.points} pts
+                        </span>
+                        {milestone.xp > 0 && (
+                          <span className="text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 px-2 py-0.5 rounded-full font-medium">
+                            +{milestone.xp} XP
+                          </span>
+                        )}
+                        {milestone.physicalReward && (
+                          <span className="flex items-center gap-1 text-xs bg-pink-100 dark:bg-pink-900/30 text-pink-600 dark:text-pink-400 px-2 py-0.5 rounded-full font-medium">
+                            {getPhysicalRewardIcon(milestone.physicalReward)}
+                            {milestone.physicalReward}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Progress bar */}
                       <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
                         <motion.div
                           initial={{ width: 0 }}
                           animate={{ width: `${progress}%` }}
+                          transition={{ duration: 0.5, ease: 'easeOut' }}
                           className={`h-full rounded-full ${
-                            isComplete ? 'bg-emerald-500' : 'bg-gray-400'
+                            isComplete ? 'bg-gradient-to-r from-emerald-500 to-teal-500' : 'bg-gray-400'
                           }`}
                         />
                       </div>
-                    </div>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        {activatedCount}/{milestone.count} {t('referrals.activated', 'activated')}
+                      </p>
+                    </motion.div>
                   );
                 })}
               </div>
             </div>
 
-            {/* Rewards Info */}
+            {/* 3-Tier Rewards Info */}
             <div className="bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/20 rounded-xl p-4 border border-amber-200 dark:border-amber-800">
               <h3 className="font-semibold text-amber-900 dark:text-amber-200 mb-3 flex items-center gap-2">
                 <Gift className="w-5 h-5" />
-                {t('referrals.rewards', 'Referral Rewards')}
+                {t('referrals.rewards', 'How Rewards Work')}
               </h3>
-              <div className="space-y-2 text-sm text-amber-800 dark:text-amber-300">
-                <div className="flex items-center gap-2">
-                  <Sparkles className="w-4 h-4" />
-                  <span>{t('referrals.reward1', 'You get: +3 XP & +5 points per activation')}</span>
+              <div className="space-y-3 text-sm">
+                {/* Layer A - Instant */}
+                <div className="flex items-start gap-3 p-2 bg-white/50 dark:bg-gray-800/50 rounded-lg">
+                  <div className="w-6 h-6 rounded-full bg-emerald-500 text-white flex items-center justify-center text-xs font-bold flex-shrink-0">
+                    A
+                  </div>
+                  <div>
+                    <p className="font-medium text-emerald-700 dark:text-emerald-400">
+                      {isSwahili ? 'Tuzo ya Papo Hapo' : 'Instant Reward'}
+                    </p>
+                    <p className="text-amber-700 dark:text-amber-300 text-xs">
+                      {isSwahili
+                        ? 'Shiriki na upate beji mara moja!'
+                        : 'Share and get a badge immediately!'}
+                    </p>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Sparkles className="w-4 h-4" />
-                  <span>{t('referrals.reward2', 'Friend gets: +5 XP & +10 points')}</span>
+
+                {/* Layer B - Activation */}
+                <div className="flex items-start gap-3 p-2 bg-white/50 dark:bg-gray-800/50 rounded-lg">
+                  <div className="w-6 h-6 rounded-full bg-blue-500 text-white flex items-center justify-center text-xs font-bold flex-shrink-0">
+                    B
+                  </div>
+                  <div>
+                    <p className="font-medium text-blue-700 dark:text-blue-400">
+                      {isSwahili ? 'Tuzo ya Uanzishaji' : 'Activation Reward'}
+                    </p>
+                    <p className="text-amber-700 dark:text-amber-300 text-xs">
+                      {isSwahili
+                        ? 'Wewe: +3 XP & +5 pts | Rafiki: +5 XP & +10 pts'
+                        : 'You: +3 XP & +5 pts | Friend: +5 XP & +10 pts'}
+                    </p>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Sparkles className="w-4 h-4" />
-                  <span>{t('referrals.reward3', 'Milestone bonuses up to 2,500 points!')}</span>
+
+                {/* Layer C - Milestones */}
+                <div className="flex items-start gap-3 p-2 bg-white/50 dark:bg-gray-800/50 rounded-lg">
+                  <div className="w-6 h-6 rounded-full bg-purple-500 text-white flex items-center justify-center text-xs font-bold flex-shrink-0">
+                    C
+                  </div>
+                  <div>
+                    <p className="font-medium text-purple-700 dark:text-purple-400">
+                      {isSwahili ? 'Tuzo za Hatua' : 'Milestone Rewards'}
+                    </p>
+                    <p className="text-amber-700 dark:text-amber-300 text-xs">
+                      {isSwahili
+                        ? 'Zawadi za kipekee: Airtime, Vocha, Taa ya jua!'
+                        : 'Real rewards: Airtime, Vouchers, Solar light!'}
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>

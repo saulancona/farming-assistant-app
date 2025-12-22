@@ -410,14 +410,14 @@ BEGIN
     updated_at = NOW()
   WHERE user_id = v_referral.referrer_id;
 
-  -- Award XP to referrer
+  -- Award XP to referrer (using correct signature: user_id, action, action_sw, xp_amount, metadata)
   IF v_referral.referrer_id IS NOT NULL THEN
-    PERFORM award_xp(v_referral.referrer_id, v_referrer_xp, 'referral_bonus', 'Referral activation bonus');
+    PERFORM award_xp(v_referral.referrer_id, 'referral_bonus', 'Bonasi ya rufaa', v_referrer_xp, '{}');
     PERFORM award_points(v_referral.referrer_id, v_referrer_points, 'referral', v_referral.id, 'Referral activation reward');
   END IF;
 
   -- Award XP and points to referred user
-  PERFORM award_xp(p_user_id, v_referred_xp, 'welcome_bonus', 'Welcome bonus for joining via referral');
+  PERFORM award_xp(p_user_id, 'welcome_bonus', 'Bonasi ya karibu', v_referred_xp, '{}');
   PERFORM award_points(p_user_id, v_referred_points, 'referral', v_referral.id, 'Welcome bonus for joining via referral');
 
   RETURN jsonb_build_object(
@@ -731,12 +731,12 @@ BEGIN
     xp_awarded = v_step_xp
   WHERE user_mission_id = p_user_mission_id AND step_index = p_step_index AND status != 'completed';
 
-  -- Award XP for step completion
-  PERFORM award_xp(v_user_mission.user_id, v_step_xp, 'mission_step', 'Completed mission step');
+  -- Award XP for step completion (using correct signature: user_id, action, action_sw, xp_amount, metadata)
+  PERFORM award_xp(v_user_mission.user_id, 'mission_step', 'Hatua ya misheni imekamilika', v_step_xp, '{}');
 
   -- If photo evidence provided, award bonus
   IF p_evidence_photo_url IS NOT NULL THEN
-    PERFORM award_xp(v_user_mission.user_id, 5, 'photo_evidence', 'Photo evidence bonus');
+    PERFORM award_xp(v_user_mission.user_id, 'photo_evidence', 'Bonasi ya ushahidi wa picha', 5, '{}');
     PERFORM award_points(v_user_mission.user_id, 2, 'photo', p_user_mission_id, 'Photo evidence bonus');
   END IF;
 
@@ -771,8 +771,8 @@ BEGIN
       points_earned = v_mission.points_reward
     WHERE id = p_user_mission_id;
 
-    -- Award completion rewards
-    PERFORM award_xp(v_user_mission.user_id, v_mission.xp_reward, 'mission_complete', 'Completed mission: ' || v_mission.name);
+    -- Award completion rewards (using correct signature: user_id, action, action_sw, xp_amount, metadata)
+    PERFORM award_xp(v_user_mission.user_id, 'mission_complete', 'Misheni imekamilika: ' || v_mission.name, v_mission.xp_reward, '{}');
     PERFORM award_points(v_user_mission.user_id, v_mission.points_reward, 'mission', v_user_mission.mission_id, 'Mission completion reward');
 
     -- Recalculate farmer score
@@ -835,8 +835,8 @@ BEGIN
         points_awarded = v_challenge.points_reward
       WHERE id = v_progress.id;
 
-      -- Award rewards
-      PERFORM award_xp(p_user_id, v_challenge.xp_reward, 'challenge_complete', 'Completed challenge: ' || v_challenge.name);
+      -- Award rewards (using correct signature: user_id, action, action_sw, xp_amount, metadata)
+      PERFORM award_xp(p_user_id, 'challenge_complete', 'Changamoto imekamilika: ' || v_challenge.name, v_challenge.xp_reward, '{}');
       PERFORM award_points(p_user_id, v_challenge.points_reward, 'challenge', v_challenge.id, 'Challenge completion reward');
 
       v_completed_count := v_completed_count + 1;

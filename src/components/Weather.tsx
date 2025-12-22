@@ -1,23 +1,47 @@
 import { motion } from 'framer-motion';
 import { Cloud, CloudRain, Sun, Wind, Droplets, AlertCircle, CheckCircle, MapPin, RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { WeatherData, WeatherAlert } from '../types';
 import ReadButton from './ReadButton';
 import TalkingButton from './TalkingButton';
 import WeatherAlerts from './WeatherAlerts';
 import { getWeatherDataExtended } from '../services/weather';
+import { useRecordActivity } from '../hooks/useStreak';
+import { useAwardMicroReward } from '../hooks/useMicroWins';
 
 interface WeatherProps {
   weather: WeatherData;
   onRefresh?: () => void;
   location?: string;
+  userId?: string;
 }
 
-export default function Weather({ weather, onRefresh, location = 'Nairobi, Kenya' }: WeatherProps) {
+export default function Weather({ weather, onRefresh, location = 'Nairobi, Kenya', userId }: WeatherProps) {
   const { t } = useTranslation();
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [alerts, setAlerts] = useState<WeatherAlert[]>([]);
+  const recordActivity = useRecordActivity();
+  const awardMicroReward = useAwardMicroReward();
+  const hasRecordedActivity = useRef(false);
+
+  // Record weather check activity on mount (only once per session)
+  useEffect(() => {
+    if (userId && !hasRecordedActivity.current) {
+      hasRecordedActivity.current = true;
+      recordActivity.mutate({
+        userId,
+        activityType: 'weather_check',
+        activityName: 'Checked Weather',
+        activityNameSw: 'Kuangalia Hali ya Hewa',
+      });
+      // Award micro-reward for checking weather
+      awardMicroReward.mutate({
+        userId,
+        actionType: 'weather_check',
+      });
+    }
+  }, [userId]);
 
   // Load alerts on mount and when weather changes
   useEffect(() => {

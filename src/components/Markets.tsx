@@ -1,20 +1,66 @@
 import { motion } from 'framer-motion';
 import { TrendingUp, RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { MarketPrice } from '../types';
 import MarketWidget from './MarketWidget';
 import ReadButton from './ReadButton';
 import TalkingButton from './TalkingButton';
+import { useRecordActivity } from '../hooks/useStreak';
+import { useAwardMicroReward } from '../hooks/useMicroWins';
+import { useUpdateChallengeProgress } from '../hooks/useChallenges';
 
 interface MarketsProps {
   prices: MarketPrice[];
   onRefresh?: () => void;
+  userId?: string;
 }
 
-export default function Markets({ prices, onRefresh }: MarketsProps) {
+export default function Markets({ prices, onRefresh, userId }: MarketsProps) {
   const { t } = useTranslation();
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const recordActivity = useRecordActivity();
+  const awardMicroReward = useAwardMicroReward();
+  const updateChallengeProgress = useUpdateChallengeProgress();
+  const hasRecordedActivity = useRef(false);
+
+  // Record price check activity on mount (only once per session)
+  useEffect(() => {
+    if (userId && !hasRecordedActivity.current) {
+      hasRecordedActivity.current = true;
+      console.log('[Markets] Recording activity for user:', userId);
+
+      recordActivity.mutate({
+        userId,
+        activityType: 'price_check',
+        activityName: 'Checked Market Prices',
+        activityNameSw: 'Kuangalia Bei za Soko',
+      });
+
+      // Award micro-reward for checking prices
+      awardMicroReward.mutate({
+        userId,
+        actionType: 'price_check',
+      });
+
+      // Update weekly challenge progress (target_action: 'check_prices')
+      console.log('[Markets] Updating challenge progress for action: check_prices');
+      updateChallengeProgress.mutate(
+        {
+          userId,
+          action: 'check_prices',
+        },
+        {
+          onSuccess: (data) => {
+            console.log('[Markets] Challenge progress updated successfully:', data);
+          },
+          onError: (error) => {
+            console.error('[Markets] Failed to update challenge progress:', error);
+          },
+        }
+      );
+    }
+  }, [userId]);
 
   const handleRefresh = async () => {
     if (onRefresh) {

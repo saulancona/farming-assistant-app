@@ -2,6 +2,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../contexts/AuthContext';
 import toast from 'react-hot-toast';
 import * as db from '../services/database';
+import { supabase } from '../lib/supabase';
 import type { Field, Expense, Income, Task, InventoryItem, StorageBin } from '../types';
 
 /**
@@ -34,6 +35,21 @@ export function useFarmOperations() {
       await db.updateField(id, updates);
       queryClient.invalidateQueries({ queryKey: ['fields', userId] });
       window.dispatchEvent(new Event('fieldsChanged'));
+
+      // Record field update activity for streak tracking
+      if (userId) {
+        try {
+          await supabase.rpc('record_daily_activity', {
+            p_user_id: userId,
+            p_activity_type: 'field_update',
+            p_activity_name: 'Updated Field',
+            p_activity_name_sw: 'Kusasisha Shamba',
+          });
+          queryClient.invalidateQueries({ queryKey: ['streakStatus', userId] });
+        } catch (activityError) {
+          console.error('Error recording field update activity:', activityError);
+        }
+      }
     } catch (error) {
       console.error('Error updating field:', error);
       toast.error('Failed to update field. Please try again.');
@@ -61,6 +77,21 @@ export function useFarmOperations() {
     try {
       await db.addExpense(expense);
       queryClient.invalidateQueries({ queryKey: ['expenses', userId] });
+
+      // Record expense logging activity for streak tracking
+      if (userId) {
+        try {
+          await supabase.rpc('record_daily_activity', {
+            p_user_id: userId,
+            p_activity_type: 'expense_logged',
+            p_activity_name: 'Logged Expense',
+            p_activity_name_sw: 'Kurekodi Gharama',
+          });
+          queryClient.invalidateQueries({ queryKey: ['streakStatus', userId] });
+        } catch (activityError) {
+          console.error('Error recording expense activity:', activityError);
+        }
+      }
     } catch (error) {
       console.error('Error adding expense:', error);
       toast.error('Failed to add expense. Please try again.');
@@ -98,6 +129,21 @@ export function useFarmOperations() {
     try {
       await db.addIncome(incomeItem);
       queryClient.invalidateQueries({ queryKey: ['income', userId] });
+
+      // Record income logging activity for streak tracking
+      if (userId) {
+        try {
+          await supabase.rpc('record_daily_activity', {
+            p_user_id: userId,
+            p_activity_type: 'income_logged',
+            p_activity_name: 'Logged Income',
+            p_activity_name_sw: 'Kurekodi Mapato',
+          });
+          queryClient.invalidateQueries({ queryKey: ['streakStatus', userId] });
+        } catch (activityError) {
+          console.error('Error recording income activity:', activityError);
+        }
+      }
     } catch (error) {
       console.error('Error adding income:', error);
       toast.error('Failed to add income. Please try again.');
@@ -146,6 +192,21 @@ export function useFarmOperations() {
     try {
       await db.updateTask(id, updates);
       queryClient.invalidateQueries({ queryKey: ['tasks', userId] });
+
+      // Record task completion activity for streak tracking
+      if (updates.status === 'completed' && userId) {
+        try {
+          await supabase.rpc('record_daily_activity', {
+            p_user_id: userId,
+            p_activity_type: 'task_complete',
+            p_activity_name: 'Completed a Task',
+            p_activity_name_sw: 'Kukamilisha Kazi',
+          });
+          queryClient.invalidateQueries({ queryKey: ['streakStatus', userId] });
+        } catch (activityError) {
+          console.error('Error recording task completion activity:', activityError);
+        }
+      }
     } catch (error) {
       console.error('Error updating task:', error);
       toast.error('Failed to update task. Please try again.');

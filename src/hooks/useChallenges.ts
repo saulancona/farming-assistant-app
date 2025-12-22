@@ -55,13 +55,20 @@ export function useUserChallengeProgress(userId: string | undefined) {
     queryFn: async () => {
       if (!userId) return [];
 
+      console.log('[useChallenges] Fetching user challenge progress for:', userId);
+
       const { data, error } = await supabase
         .from('user_challenges_with_details')
         .select('*')
         .eq('user_id', userId)
         .order('started_at', { ascending: false });
 
-      if (error) throw error;
+      if (error) {
+        console.error('[useChallenges] Error fetching progress:', error);
+        throw error;
+      }
+
+      console.log('[useChallenges] User challenge progress raw data:', data);
 
       return data.map((p: Record<string, unknown>) => ({
         id: p.id,
@@ -120,22 +127,34 @@ export function useUpdateChallengeProgress() {
 
   return useMutation({
     mutationFn: async ({ userId, action, increment = 1 }: { userId: string; action: string; increment?: number }) => {
+      console.log('[useChallenges] Calling update_challenge_progress RPC:', { userId, action, increment });
+
       const { data, error } = await supabase.rpc('update_challenge_progress', {
         p_user_id: userId,
         p_action: action,
         p_increment: increment,
       });
 
-      if (error) throw error;
+      if (error) {
+        console.error('[useChallenges] RPC error:', error);
+        throw error;
+      }
+
+      console.log('[useChallenges] RPC response:', data);
       return data as { success: boolean; challenges_completed: number };
     },
     onSuccess: (data, variables) => {
+      console.log('[useChallenges] Mutation success, invalidating queries for:', variables.userId);
       queryClient.invalidateQueries({ queryKey: ['userChallengeProgress', variables.userId] });
+      queryClient.invalidateQueries({ queryKey: ['activeChallenges'] });
 
       if (data.challenges_completed > 0) {
         queryClient.invalidateQueries({ queryKey: ['userPoints', variables.userId] });
         queryClient.invalidateQueries({ queryKey: ['rewardsProfile', variables.userId] });
       }
+    },
+    onError: (error) => {
+      console.error('[useChallenges] Mutation failed:', error);
     },
   });
 }

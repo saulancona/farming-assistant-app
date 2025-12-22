@@ -5,19 +5,22 @@ import { format } from 'date-fns';
 import { useTranslation } from 'react-i18next';
 import type { Expense, Field } from '../types';
 import ConvertedPrice from './ConvertedPrice';
+import { useAwardMicroReward } from '../hooks/useMicroWins';
 
 interface ExpenseTrackerProps {
   expenses: Expense[];
   fields: Field[];
+  userId?: string;
   onAddExpense: (expense: Omit<Expense, 'id'>) => void;
   onUpdateExpense: (id: string, expense: Partial<Expense>) => void;
   onDeleteExpense: (id: string) => void;
 }
 
-export default function ExpenseTracker({ expenses, fields, onAddExpense, onUpdateExpense, onDeleteExpense }: ExpenseTrackerProps) {
+export default function ExpenseTracker({ expenses, fields, userId, onAddExpense, onUpdateExpense, onDeleteExpense }: ExpenseTrackerProps) {
   const { t } = useTranslation();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
+  const awardMicroReward = useAwardMicroReward();
   const [formData, setFormData] = useState<Omit<Expense, 'id'>>({
     date: '',
     category: 'other',
@@ -77,6 +80,13 @@ export default function ExpenseTracker({ expenses, fields, onAddExpense, onUpdat
       onUpdateExpense(editingExpense.id, expenseData);
     } else {
       onAddExpense(expenseData);
+      // Award micro-reward for logging expense
+      if (userId) {
+        awardMicroReward.mutate({
+          userId,
+          actionType: 'expense_logged',
+        });
+      }
     }
     handleCloseModal();
   };

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type Tab = 'dashboard' | 'fields' | 'expenses' | 'income' | 'tasks' | 'inventory' | 'storage' | 'settings' | 'weather' | 'markets' | 'pestcontrol' | 'aichat' | 'community' | 'messages' | 'knowledge' | 'marketplace' | 'analytics' | 'calendar' | 'rewards' | 'learning' | 'missions' | 'shop' | 'referrals' | 'challenges';
+export type Tab = 'dashboard' | 'fields' | 'expenses' | 'income' | 'tasks' | 'inventory' | 'storage' | 'settings' | 'weather' | 'markets' | 'pestcontrol' | 'aichat' | 'community' | 'messages' | 'knowledge' | 'marketplace' | 'analytics' | 'calendar' | 'rewards' | 'learning' | 'missions' | 'shop' | 'referrals' | 'challenges' | 'photo-challenges' | 'teams' | 'story-quests';
 
 interface UIState {
   activeTab: Tab;

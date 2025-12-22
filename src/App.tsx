@@ -8,6 +8,7 @@ import { useFields, useExpenses, useIncome, useTasks, useInventory, useStorageBi
 import { useRealtimeSubscriptions } from './hooks/useRealtimeSubscriptions';
 import { useWeatherData, useMarketData } from './hooks/useWeatherAndMarket';
 import { useUpdateStreak } from './hooks/useRewards';
+import { useRecordActivity } from './hooks/useStreak';
 import ErrorBoundary from './components/ErrorBoundary';
 import { Toaster } from 'react-hot-toast';
 import { Onboarding, isOnboardingComplete } from './components/onboarding';
@@ -19,6 +20,7 @@ import VoiceControl from './components/VoiceControl';
 import TalkingButton from './components/TalkingButton';
 import OfflineIndicator from './components/OfflineIndicator';
 import { XPToastProvider } from './components/rewards/XPToast';
+import MicroWinToast from './components/micro-wins/MicroWinToast';
 import RouteContent from './routes/RouteContent';
 
 // Lazy load modal components
@@ -53,13 +55,23 @@ function App() {
 
   // Streak update
   const updateStreak = useUpdateStreak();
+  const recordActivity = useRecordActivity();
 
   useEffect(() => {
     if (!authLoading) setIsLoading(false);
   }, [authLoading, setIsLoading]);
 
   useEffect(() => {
-    if (user?.id && !authLoading) updateStreak.mutate(user.id);
+    if (user?.id && !authLoading) {
+      updateStreak.mutate(user.id);
+      // Record app_open activity for enhanced streak tracking
+      recordActivity.mutate({
+        userId: user.id,
+        activityType: 'app_open',
+        activityName: 'Opened App',
+        activityNameSw: 'Kufungua Programu',
+      });
+    }
   }, [user?.id, authLoading]);
 
   // Calculate dashboard stats
@@ -92,6 +104,7 @@ function App() {
   return (
     <div className="min-h-screen bg-gray-50 flex">
       <Toaster position="top-center" toastOptions={{ duration: 4000, style: { background: '#363636', color: '#fff' } }} />
+      <MicroWinToast />
       <OfflineIndicator />
 
       {/* Desktop Sidebar */}

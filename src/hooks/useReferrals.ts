@@ -10,6 +10,33 @@ import type {
   CheckMilestonesResult,
 } from '../types';
 
+// Types for enhanced referral system
+export interface RecordShareResult {
+  success: boolean;
+  message: string;
+  messageSw: string;
+  shareCount: number;
+  badgeAwarded?: string;
+  xpAwarded: number;
+  referrerBadge: string;
+}
+
+export interface ReferralDashboardData {
+  referralCode: string;
+  totalShares: number;
+  totalReferrals: number;
+  activatedReferrals: number;
+  pendingReferrals: number;
+  currentTier: string;
+  referrerBadge: string;
+  totalXpEarned: number;
+  totalPointsEarned: number;
+  nextMilestone: number | null;
+  progressToNextMilestone: number;
+  claimedMilestones: number[];
+  unclaimedMilestones: number[];
+}
+
 // Get or generate user's referral code
 export function useReferralCode(userId: string | undefined) {
   return useQuery({
@@ -325,4 +352,192 @@ export function getShareMessage(code: string, language: 'en' | 'sw' = 'en') {
   }
 
   return `🌱 Join AgroAfrica - the best farming app! Use my code: ${code} to get bonus XP and points. ${link}`;
+}
+
+// ============================================
+// ENHANCED REFERRAL SYSTEM - 3-TIER REWARDS
+// ============================================
+
+// Record a referral share for instant gratification (Layer A)
+export function useRecordReferralShare() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ userId, shareMethod }: { userId: string; shareMethod: string }) => {
+      const { data, error } = await supabase.rpc('record_referral_share', {
+        p_user_id: userId,
+        p_share_method: shareMethod,
+      });
+
+      if (error) throw error;
+      return data as RecordShareResult;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['referralStats', variables.userId] });
+      queryClient.invalidateQueries({ queryKey: ['referralDashboard', variables.userId] });
+      queryClient.invalidateQueries({ queryKey: ['rewardsProfile', variables.userId] });
+    },
+  });
+}
+
+// Get enhanced referral dashboard data
+export function useReferralDashboard(userId: string | undefined) {
+  return useQuery({
+    queryKey: ['referralDashboard', userId],
+    queryFn: async () => {
+      if (!userId) return null;
+
+      const { data, error } = await supabase.rpc('get_referral_dashboard', {
+        p_user_id: userId,
+      });
+
+      if (error) throw error;
+      return data as ReferralDashboardData;
+    },
+    enabled: !!userId,
+    staleTime: 60 * 1000, // 1 minute
+  });
+}
+
+// Enhanced activation with tier rewards (Layer B)
+export function useActivateReferralEnhanced() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ userId, action }: { userId: string; action: string }) => {
+      const { data, error } = await supabase.rpc('activate_referral_enhanced', {
+        p_user_id: userId,
+        p_action: action,
+      });
+
+      if (error) throw error;
+      return data as ActivateReferralResult & {
+        referrerReward: { xp: number; points: number };
+        referredReward: { xp: number; points: number };
+      };
+    },
+    onSuccess: (data, variables) => {
+      if (data.success) {
+        queryClient.invalidateQueries({ queryKey: ['referralStats'] });
+        queryClient.invalidateQueries({ queryKey: ['referralHistory'] });
+        queryClient.invalidateQueries({ queryKey: ['referralDashboard'] });
+        queryClient.invalidateQueries({ queryKey: ['userPoints', variables.userId] });
+        queryClient.invalidateQueries({ queryKey: ['rewardsProfile', variables.userId] });
+      }
+    },
+  });
+}
+
+// Check and claim referral milestones (Layer C - enhanced)
+export function useCheckReferralMilestonesEnhanced() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (userId: string) => {
+      const { data, error } = await supabase.rpc('check_referral_milestones_enhanced', {
+        p_user_id: userId,
+      });
+
+      if (error) throw error;
+      return data as CheckMilestonesResult & {
+        milestonesReached: Array<{
+          count: number;
+          points: number;
+          xp: number;
+          badge?: string;
+          title?: string;
+          physicalReward?: string;
+        }>;
+      };
+    },
+    onSuccess: (data, userId) => {
+      if (data.success) {
+        queryClient.invalidateQueries({ queryKey: ['referralStats', userId] });
+        queryClient.invalidateQueries({ queryKey: ['referralDashboard', userId] });
+        queryClient.invalidateQueries({ queryKey: ['userPoints', userId] });
+      }
+    },
+  });
+}
+
+// Get referrer badge info
+export function getReferrerBadgeInfo(badge: string) {
+  const badges: Record<string, { name: string; nameSw: string; icon: string; color: string; minShares: number }> = {
+    bronze: {
+      name: 'Bronze Referrer',
+      nameSw: 'Mshiriki wa Shaba',
+      icon: '🥉',
+      color: 'amber',
+      minShares: 1,
+    },
+    silver: {
+      name: 'Silver Referrer',
+      nameSw: 'Mshiriki wa Fedha',
+      icon: '🥈',
+      color: 'gray',
+      minShares: 5,
+    },
+    gold: {
+      name: 'Gold Referrer',
+      nameSw: 'Mshiriki wa Dhahabu',
+      icon: '🥇',
+      color: 'yellow',
+      minShares: 15,
+    },
+    platinum: {
+      name: 'Platinum Referrer',
+      nameSw: 'Mshiriki wa Platinamu',
+      icon: '💎',
+      color: 'cyan',
+      minShares: 30,
+    },
+    legend: {
+      name: 'Legend Referrer',
+      nameSw: 'Mshiriki wa Hadithi',
+      icon: '👑',
+      color: 'purple',
+      minShares: 50,
+    },
+  };
+
+  return badges[badge] || badges.bronze;
+}
+
+// Get enhanced milestone info with physical rewards
+export function getEnhancedMilestoneInfo() {
+  return [
+    { count: 3, points: 50, xp: 10, badge: null, title: null, physicalReward: '$0.30 airtime' },
+    { count: 10, points: 150, xp: 30, badge: 'Recruiter Badge', title: 'Recruiter', physicalReward: 'Input voucher' },
+    { count: 25, points: 400, xp: 75, badge: 'Champion Badge', title: 'Champion', physicalReward: 'Solar light' },
+    { count: 50, points: 1000, xp: 150, badge: 'Village Champion Badge', title: 'Village Champion', physicalReward: 'Agro-dealer credit' },
+    { count: 100, points: 2500, xp: 300, badge: 'Legend Badge', title: 'Legend', physicalReward: 'VIP Status + Premium features' },
+  ];
+}
+
+// Get instant gratification messages
+export function getInstantGratificationMessage(shareCount: number, language: 'en' | 'sw' = 'en') {
+  const messages = {
+    en: [
+      { min: 1, message: "👏 Great job! You've invited a farmer. You're growing your community!" },
+      { min: 5, message: "🌱 Amazing! 5 shares! You're becoming a farming community builder!" },
+      { min: 15, message: "🌾 Incredible! 15 shares! You're a Gold Referrer now!" },
+      { min: 30, message: "💎 Outstanding! 30 shares! Platinum Referrer status unlocked!" },
+      { min: 50, message: "👑 Legendary! 50+ shares! You're a true farming community champion!" },
+    ],
+    sw: [
+      { min: 1, message: "👏 Hongera! Umealika mkulima. Unakuza jamii yako!" },
+      { min: 5, message: "🌱 Ajabu! Kushiriki 5! Unakuwa mjenzi wa jamii ya wakulima!" },
+      { min: 15, message: "🌾 Isiyosadikika! Kushiriki 15! Sasa wewe ni Mshiriki wa Dhahabu!" },
+      { min: 30, message: "💎 Bora sana! Kushiriki 30! Hali ya Mshiriki wa Platinamu imefunguliwa!" },
+      { min: 50, message: "👑 Hadithi! Kushiriki 50+! Wewe ni bingwa wa kweli wa jamii ya wakulima!" },
+    ],
+  };
+
+  const langMessages = messages[language];
+  for (let i = langMessages.length - 1; i >= 0; i--) {
+    if (shareCount >= langMessages[i].min) {
+      return langMessages[i].message;
+    }
+  }
+  return langMessages[0].message;
 }

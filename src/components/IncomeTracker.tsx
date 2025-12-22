@@ -4,18 +4,21 @@ import { Plus, Edit2, Trash2, TrendingUp, Calendar, X, DollarSign } from 'lucide
 import { format } from 'date-fns';
 import type { Income, Field } from '../types';
 import ConvertedPrice from './ConvertedPrice';
+import { useAwardMicroReward } from '../hooks/useMicroWins';
 
 interface IncomeTrackerProps {
   income: Income[];
   fields: Field[];
+  userId?: string;
   onAddIncome: (income: Omit<Income, 'id'>) => void;
   onUpdateIncome: (id: string, income: Partial<Income>) => void;
   onDeleteIncome: (id: string) => void;
 }
 
-export default function IncomeTracker({ income, fields, onAddIncome, onUpdateIncome, onDeleteIncome }: IncomeTrackerProps) {
+export default function IncomeTracker({ income, fields, userId, onAddIncome, onUpdateIncome, onDeleteIncome }: IncomeTrackerProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingIncome, setEditingIncome] = useState<Income | null>(null);
+  const awardMicroReward = useAwardMicroReward();
   const [formData, setFormData] = useState<Omit<Income, 'id'>>({
     date: '',
     source: 'other',
@@ -75,6 +78,13 @@ export default function IncomeTracker({ income, fields, onAddIncome, onUpdateInc
       onUpdateIncome(editingIncome.id, incomeData);
     } else {
       onAddIncome(incomeData);
+      // Award micro-reward for logging income
+      if (userId) {
+        awardMicroReward.mutate({
+          userId,
+          actionType: 'income_logged',
+        });
+      }
     }
     handleCloseModal();
   };

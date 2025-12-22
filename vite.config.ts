@@ -8,9 +8,21 @@ export default defineConfig(({ mode }) => ({
     // Remove console.log and debugger statements in production
     drop: mode === 'production' ? ['console', 'debugger'] : [],
   },
+  // Exclude the api folder (Vercel serverless functions) from Vite processing
+  server: {
+    watch: {
+      ignored: ['**/api/**'],
+    },
+  },
+  optimizeDeps: {
+    exclude: ['api'],
+  },
   build: {
     // Let Vite handle chunk splitting automatically to avoid React loading order issues
     // Manual chunking was causing recharts to load before React was initialized
+    rollupOptions: {
+      external: [/^\/api\/.*/],
+    },
   },
   plugins: [
     react(),

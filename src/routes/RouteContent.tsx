@@ -37,8 +37,11 @@ const RewardsOverview = lazy(() => import('../components/rewards/RewardsOverview
 const LearningProgress = lazy(() => import('../components/learning/LearningProgress'));
 const MissionHub = lazy(() => import('../components/missions/MissionHub'));
 const WeeklyChallenges = lazy(() => import('../components/challenges/WeeklyChallenges'));
+const PhotoChallenges = lazy(() => import('../components/challenges/PhotoChallenges'));
 const RewardsShop = lazy(() => import('../components/shop/RewardsShop'));
 const ReferralDashboard = lazy(() => import('../components/referrals/ReferralDashboard'));
+const TeamDashboard = lazy(() => import('../components/teams/TeamDashboard'));
+const StoryQuestsDashboard = lazy(() => import('../components/story-quests/StoryQuestsDashboard'));
 
 // Loading fallback component
 function PageLoader() {
@@ -121,6 +124,7 @@ export default function RouteContent({
           <ExpenseTracker
             expenses={expenses}
             fields={fields}
+            userId={userId}
             onAddExpense={operations.addExpense}
             onUpdateExpense={operations.updateExpense}
             onDeleteExpense={operations.deleteExpense}
@@ -132,6 +136,7 @@ export default function RouteContent({
           <IncomeTracker
             income={income}
             fields={fields}
+            userId={userId}
             onAddIncome={operations.addIncome}
             onUpdateIncome={operations.updateIncome}
             onDeleteIncome={operations.deleteIncome}
@@ -143,6 +148,7 @@ export default function RouteContent({
           <TaskManager
             tasks={tasks}
             fields={fields}
+            userId={userId}
             onAddTask={operations.addTask}
             onUpdateTask={operations.updateTask}
             onDeleteTask={operations.deleteTask}
@@ -213,11 +219,20 @@ export default function RouteContent({
       case 'challenges':
         return <WeeklyChallenges userId={userId} />;
 
+      case 'photo-challenges':
+        return <PhotoChallenges userId={userId} />;
+
       case 'shop':
         return <RewardsShop userId={userId} />;
 
       case 'referrals':
         return <ReferralDashboard userId={userId} />;
+
+      case 'teams':
+        return <TeamDashboard userId={userId} />;
+
+      case 'story-quests':
+        return <StoryQuestsDashboard userId={userId || ''} />;
 
       case 'learning':
         return <LearningProgress userId={userId} />;
@@ -247,6 +262,7 @@ export default function RouteContent({
             weather={weatherData}
             location={farmLocation}
             onRefresh={onRefreshWeather}
+            userId={userId}
           />
         ) : (
           <div className="text-center py-12">
@@ -255,7 +271,7 @@ export default function RouteContent({
         );
 
       case 'markets':
-        return <Markets prices={marketPrices} onRefresh={onRefreshMarkets} />;
+        return <Markets prices={marketPrices} onRefresh={onRefreshMarkets} userId={userId} />;
 
       default:
         return (

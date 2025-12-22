@@ -4,10 +4,13 @@ import { Plus, Edit2, Trash2, CheckCircle, Clock, AlertCircle, Calendar, X } fro
 import { format, isPast, isToday, isTomorrow, parseISO, isValid } from 'date-fns';
 import { useTranslation } from 'react-i18next';
 import type { Task, Field } from '../types';
+import { useAwardMicroReward } from '../hooks/useMicroWins';
+import { useUpdateChallengeProgress } from '../hooks/useChallenges';
 
 interface TaskManagerProps {
   tasks: Task[];
   fields: Field[];
+  userId?: string;
   onAddTask: (task: Omit<Task, 'id'>) => void;
   onUpdateTask: (id: string, task: Partial<Task>) => void;
   onDeleteTask: (id: string) => void;
@@ -24,11 +27,13 @@ const safeParseDateISO = (dateStr: string | undefined | null): Date | null => {
   }
 };
 
-export default function TaskManager({ tasks, fields, onAddTask, onUpdateTask, onDeleteTask }: TaskManagerProps) {
+export default function TaskManager({ tasks, fields, userId, onAddTask, onUpdateTask, onDeleteTask }: TaskManagerProps) {
   const { t } = useTranslation();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [filterStatus, setFilterStatus] = useState<Task['status'] | 'all'>('all');
+  const awardMicroReward = useAwardMicroReward();
+  const updateChallengeProgress = useUpdateChallengeProgress();
   const [formData, setFormData] = useState<Omit<Task, 'id'>>({
     title: '',
     description: '',
@@ -101,6 +106,13 @@ export default function TaskManager({ tasks, fields, onAddTask, onUpdateTask, on
       onUpdateTask(editingTask.id, taskData);
     } else {
       onAddTask(taskData);
+      // Award micro-reward for adding a new task
+      if (userId) {
+        awardMicroReward.mutate({
+          userId,
+          actionType: 'task_create',
+        });
+      }
     }
     handleCloseModal();
   };
@@ -111,6 +123,18 @@ export default function TaskManager({ tasks, fields, onAddTask, onUpdateTask, on
       status: newStatus,
       completedAt: newStatus === 'completed' ? new Date().toISOString() : undefined,
     });
+    // Award micro-reward when completing a task
+    if (newStatus === 'completed' && userId) {
+      awardMicroReward.mutate({
+        userId,
+        actionType: 'task_complete',
+      });
+      // Update weekly challenge progress (target_action: 'complete_task')
+      updateChallengeProgress.mutate({
+        userId,
+        action: 'complete_task',
+      });
+    }
   };
 
   const getPriorityColor = (priority: Task['priority']) => {
