@@ -18,51 +18,12 @@ export default defineConfig(({ mode }) => ({
     exclude: ['api'],
   },
   build: {
-    // Optimize chunk splitting for better caching and smaller initial load
+    // Let Vite handle chunk splitting automatically to avoid React loading order issues
+    // Manual chunking was causing recharts to load before React was initialized
     rollupOptions: {
       external: [/^\/api\/.*/],
-      output: {
-        manualChunks: (id) => {
-          // React core - must load first
-          if (id.includes('node_modules/react/') || id.includes('node_modules/react-dom/')) {
-            return 'react-vendor';
-          }
-          // Charts library (large)
-          if (id.includes('node_modules/recharts/') || id.includes('node_modules/d3-')) {
-            return 'charts-vendor';
-          }
-          // Supabase client
-          if (id.includes('node_modules/@supabase/')) {
-            return 'supabase-vendor';
-          }
-          // Animation library
-          if (id.includes('node_modules/framer-motion/')) {
-            return 'animation-vendor';
-          }
-          // i18n
-          if (id.includes('node_modules/i18next') || id.includes('node_modules/react-i18next')) {
-            return 'i18n-vendor';
-          }
-          // Date utilities
-          if (id.includes('node_modules/date-fns/')) {
-            return 'date-vendor';
-          }
-          // PDF generation
-          if (id.includes('node_modules/jspdf')) {
-            return 'pdf-vendor';
-          }
-          // State management and data fetching
-          if (id.includes('node_modules/@tanstack/') || id.includes('node_modules/zustand/')) {
-            return 'state-vendor';
-          }
-          // Other vendor modules
-          if (id.includes('node_modules/')) {
-            return 'vendor';
-          }
-        },
-      },
     },
-    chunkSizeWarningLimit: 600, // Increase limit slightly
+    chunkSizeWarningLimit: 1000, // Allow larger chunks to avoid fragmentation issues
   },
   plugins: [
     react(),
