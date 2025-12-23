@@ -143,6 +143,7 @@ export default function RouteContent({
             onAddField={operations.addField}
             onUpdateField={operations.updateField}
             onDeleteField={operations.deleteField}
+            onAddInventory={operations.addInventory}
             readOnly={isReadOnly}
             onRequestAuth={onRequestAuth}
           />

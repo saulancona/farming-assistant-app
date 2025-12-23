@@ -83,6 +83,8 @@ export default function InventoryManager({ inventory, onAddItem, onUpdateItem, o
         return 'bg-yellow-100 text-yellow-800';
       case 'tools':
         return 'bg-purple-100 text-purple-800';
+      case 'harvest':
+        return 'bg-amber-100 text-amber-800';
       default:
         return 'bg-gray-100 text-gray-800';
     }
@@ -179,7 +181,7 @@ export default function InventoryManager({ inventory, onAddItem, onUpdateItem, o
       {/* Filter Tabs */}
       <div className="bg-white rounded-xl shadow-md p-4">
         <div className="flex gap-2 overflow-x-auto">
-          {(['all', 'seeds', 'fertilizer', 'pesticide', 'equipment', 'fuel', 'tools', 'other'] as const).map((category) => (
+          {(['all', 'harvest', 'seeds', 'fertilizer', 'pesticide', 'equipment', 'fuel', 'tools', 'other'] as const).map((category) => (
             <button
               key={category}
               onClick={() => setFilterCategory(category)}
@@ -345,6 +347,7 @@ export default function InventoryManager({ inventory, onAddItem, onUpdateItem, o
                       onChange={(e) => setFormData({ ...formData, category: e.target.value as InventoryItem['category'] })}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
                     >
+                      <option value="harvest">Harvest</option>
                       <option value="seeds">Seeds</option>
                       <option value="fertilizer">Fertilizer</option>
                       <option value="pesticide">Pesticide</option>

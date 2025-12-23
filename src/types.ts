@@ -218,13 +218,15 @@ export interface Task {
 export interface InventoryItem {
   id: string;
   name: string;
-  category: 'seeds' | 'fertilizer' | 'pesticide' | 'equipment' | 'fuel' | 'tools' | 'other';
+  category: 'seeds' | 'fertilizer' | 'pesticide' | 'equipment' | 'fuel' | 'tools' | 'harvest' | 'other';
   quantity: number;
   unit: string;
   minQuantity: number;
   costPerUnit?: number;
   supplier?: string;
   notes?: string;
+  fieldId?: string; // Link to field for harvest items
+  harvestDate?: string; // Date of harvest
 }
 
 export interface StorageBin {
