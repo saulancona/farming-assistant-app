@@ -599,10 +599,10 @@ export interface Message {
 export interface Conversation {
   id: string;
   participantIds: string[];
-  participantNames: string[];
+  participantNames?: string[]; // Enriched at runtime from user_profiles
   lastMessage?: string;
   lastMessageAt: string;
-  unreadCount: number;
+  unreadCount?: number; // Not stored in DB, calculated from messages
 }
 
 // Marketplace Types
@@ -1598,6 +1598,21 @@ export interface TeamLeaderboardEntry {
   totalReferrals: number;
   challengesCompleted: number;
   rank: number;
+}
+
+// Team Group Chat Types
+export type TeamMessageType = 'text' | 'image' | 'system';
+
+export interface TeamMessage {
+  id: string;
+  teamId: string;
+  senderId: string;
+  senderName: string;
+  content: string;
+  messageType: TeamMessageType;
+  createdAt: string;
+  senderRole?: TeamRole;
+  senderAvatarUrl?: string;
 }
 
 // ==========================================

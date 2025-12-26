@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import {
   Users,
@@ -14,8 +14,13 @@ import {
   Camera,
   UserPlus,
   ChevronRight,
+  MessageCircle,
+  Send,
+  Loader2,
+  RefreshCw,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { useTeamChat } from '../../hooks/useTeamChat';
 import {
   useUserTeam,
   useTeamChallenges,
@@ -41,7 +46,7 @@ export default function TeamDashboard({ userId }: TeamDashboardProps) {
   const { data: challenges } = useTeamChallenges(userTeam?.id);
   const { data: leaderboard } = useTeamLeaderboard(10);
 
-  const [activeTab, setActiveTab] = useState<'team' | 'challenges' | 'leaderboard'>('team');
+  const [activeTab, setActiveTab] = useState<'team' | 'chat' | 'challenges' | 'leaderboard'>('team');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showJoinModal, setShowJoinModal] = useState(false);
 
@@ -121,18 +126,24 @@ export default function TeamDashboard({ userId }: TeamDashboardProps) {
       </motion.div>
 
       {/* Tabs */}
-      <div className="flex gap-2 bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
-        {(['team', 'challenges', 'leaderboard'] as const).map((tab) => (
+      <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-1 overflow-x-auto">
+        {(['team', 'chat', 'challenges', 'leaderboard'] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
-            className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition-colors ${
+            className={`flex-1 py-2 px-2 sm:px-3 rounded-md text-xs sm:text-sm font-medium transition-colors whitespace-nowrap ${
               activeTab === tab
                 ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
                 : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
             }`}
           >
             {tab === 'team' && t('teams.team', 'Team')}
+            {tab === 'chat' && (
+              <span className="flex items-center justify-center gap-1">
+                <MessageCircle className="w-3 h-3 sm:w-4 sm:h-4" />
+                <span className="hidden sm:inline">{t('teams.chat', 'Chat')}</span>
+              </span>
+            )}
             {tab === 'challenges' && t('teams.challenges', 'Challenges')}
             {tab === 'leaderboard' && t('teams.leaderboard', 'Leaderboard')}
           </button>
@@ -144,6 +155,13 @@ export default function TeamDashboard({ userId }: TeamDashboardProps) {
         <TeamDetailsTab
           team={userTeam}
           userId={userId!}
+          isSwahili={isSwahili}
+        />
+      )}
+
+      {activeTab === 'chat' && (
+        <TeamChatTab
+          teamId={userTeam.id}
           isSwahili={isSwahili}
         />
       )}
@@ -446,6 +464,182 @@ function TeamDetailsTab({ team, userId, isSwahili }: TeamDetailsTabProps) {
           : t('teams.leaveTeam', 'Leave Team')}
       </button>
     </div>
+  );
+}
+
+// ============================================
+// TEAM CHAT TAB
+// ============================================
+
+interface TeamChatTabProps {
+  teamId: string;
+  isSwahili: boolean;
+}
+
+function TeamChatTab({ teamId, isSwahili }: TeamChatTabProps) {
+  const { t } = useTranslation();
+  const { messages, isLoading, sendMessage, isSending, currentUserId, refetch } = useTeamChat(teamId);
+  const [newMessage, setNewMessage] = useState('');
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const prevMessageCount = useRef(0);
+
+  // Scroll to bottom only when new messages are added
+  useEffect(() => {
+    if (messages.length > prevMessageCount.current && messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+    prevMessageCount.current = messages.length;
+  }, [messages.length]);
+
+  const handleRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    await refetch();
+    setTimeout(() => setIsRefreshing(false), 500);
+  }, [refetch]);
+
+  const handleSend = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newMessage.trim() || isSending) return;
+
+    const messageToSend = newMessage;
+    setNewMessage('');
+    await sendMessage(messageToSend);
+  };
+
+  const formatTime = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
+
+    if (diffDays === 0) {
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    } else if (diffDays === 1) {
+      return isSwahili ? 'Jana' : 'Yesterday';
+    } else if (diffDays < 7) {
+      return date.toLocaleDateString([], { weekday: 'short' });
+    } else {
+      return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
+      </div>
+    );
+  }
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 flex flex-col"
+      style={{ height: '60vh', minHeight: '400px' }}
+    >
+      {/* Chat Header */}
+      <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700 flex items-center gap-2">
+        <MessageCircle className="w-5 h-5 text-indigo-500" />
+        <h3 className="font-semibold text-gray-900 dark:text-white">
+          {t('teams.groupChat', 'Group Chat')}
+        </h3>
+        <span className="text-xs text-gray-500 ml-auto">
+          {messages.length} {isSwahili ? 'ujumbe' : 'messages'}
+        </span>
+        <button
+          onClick={handleRefresh}
+          disabled={isRefreshing}
+          className="p-1.5 text-gray-500 hover:text-indigo-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors"
+          title={isSwahili ? 'Sasisha' : 'Refresh'}
+        >
+          <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+        </button>
+      </div>
+
+      {/* Messages */}
+      <div
+        ref={messagesContainerRef}
+        className="flex-1 overflow-y-auto p-4 space-y-3"
+      >
+        {messages.length === 0 ? (
+          <div className="text-center py-8 text-gray-500">
+            <MessageCircle className="w-12 h-12 mx-auto mb-3 opacity-30" />
+            <p className="text-sm">
+              {isSwahili
+                ? 'Hakuna ujumbe bado. Kuwa wa kwanza kusema habari!'
+                : 'No messages yet. Be the first to say hello!'}
+            </p>
+          </div>
+        ) : (
+          messages.map((msg) => {
+            const isOwnMessage = msg.senderId === currentUserId;
+
+            return (
+              <div
+                key={msg.id}
+                className={`flex ${isOwnMessage ? 'justify-end' : 'justify-start'}`}
+              >
+                <div
+                  className={`max-w-[80%] rounded-2xl px-4 py-2 ${
+                    isOwnMessage
+                      ? 'bg-indigo-500 text-white rounded-br-md'
+                      : 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white rounded-bl-md'
+                  }`}
+                >
+                  {!isOwnMessage && (
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs font-semibold text-indigo-600 dark:text-indigo-400">
+                        {msg.senderName}
+                      </span>
+                      {msg.senderRole === 'leader' && (
+                        <Crown className="w-3 h-3 text-yellow-500" />
+                      )}
+                    </div>
+                  )}
+                  <p className="text-sm break-words">{msg.content}</p>
+                  <p
+                    className={`text-[10px] mt-1 ${
+                      isOwnMessage ? 'text-indigo-200' : 'text-gray-400'
+                    }`}
+                  >
+                    {formatTime(msg.createdAt)}
+                  </p>
+                </div>
+              </div>
+            );
+          })
+        )}
+        <div ref={messagesEndRef} />
+      </div>
+
+      {/* Message Input */}
+      <form
+        onSubmit={handleSend}
+        className="p-3 border-t border-gray-100 dark:border-gray-700 flex gap-2"
+      >
+        <input
+          type="text"
+          value={newMessage}
+          onChange={(e) => setNewMessage(e.target.value)}
+          placeholder={isSwahili ? 'Andika ujumbe...' : 'Type a message...'}
+          className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-full bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+          disabled={isSending}
+        />
+        <button
+          type="submit"
+          disabled={!newMessage.trim() || isSending}
+          className="p-2 bg-indigo-500 text-white rounded-full hover:bg-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          {isSending ? (
+            <Loader2 className="w-5 h-5 animate-spin" />
+          ) : (
+            <Send className="w-5 h-5" />
+          )}
+        </button>
+      </form>
+    </motion.div>
   );
 }
 
