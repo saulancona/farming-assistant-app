@@ -916,8 +916,19 @@ export interface Order {
 // Farmer Score (Trust Score)
 export type FarmerScoreTier = 'bronze' | 'silver' | 'gold' | 'champion';
 
+export interface FarmerScoreBreakdown {
+  articlesCompleted: number;
+  videosCompleted: number;
+  cropPlansCompleted: number;
+  currentStreak: number;
+  recentActivities: number;
+  fieldsCount: number;
+  photoUploads: number;
+  profileComplete: boolean;
+}
+
 export interface FarmerScore {
-  id: string;
+  id?: string;
   userId: string;
   learningScore: number; // 0-25
   missionScore: number; // 0-25
@@ -925,10 +936,24 @@ export interface FarmerScore {
   reliabilityScore: number; // 0-25
   totalScore: number; // 0-100
   tier: FarmerScoreTier;
-  photoUploadsCount: number;
-  dataQualityScore: number;
-  updatedAt: string;
-  createdAt: string;
+  photoUploadsCount?: number;
+  dataQualityScore?: number;
+  lastCalculatedAt?: string;
+  breakdown?: FarmerScoreBreakdown;
+  updatedAt?: string;
+  createdAt?: string;
+}
+
+export interface FarmerScoreLeaderboardEntry {
+  rank: number;
+  userId: string;
+  fullName: string;
+  totalScore: number;
+  tier: FarmerScoreTier;
+  learningScore: number;
+  missionScore: number;
+  engagementScore: number;
+  reliabilityScore: number;
 }
 
 // Referral System
