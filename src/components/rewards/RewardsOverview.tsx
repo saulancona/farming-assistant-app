@@ -11,6 +11,7 @@ import AchievementGrid from './AchievementGrid';
 import Leaderboard from './Leaderboard';
 import FarmerScoreCard from './FarmerScoreCard';
 import StreakWidget from './StreakWidget';
+import RaffleWidget from './RaffleWidget';
 import { PhotoChallengesWidget } from '../challenges/PhotoChallenges';
 import { TeamWidget } from '../teams/TeamDashboard';
 import { StoryQuestsWidget } from '../story-quests/StoryQuestsDashboard';
@@ -62,6 +63,9 @@ export default function RewardsOverview({ userId, onNavigate }: RewardsOverviewP
 
       {/* Daily Streak Widget */}
       <StreakWidget userId={userId} />
+
+      {/* Monthly Raffle Widget - Solar Panel Prize */}
+      <RaffleWidget userId={userId} compact />
 
       {/* Photo Challenges Widget */}
       <PhotoChallengesWidget userId={userId} onClick={() => onNavigate?.('photo-challenges')} />

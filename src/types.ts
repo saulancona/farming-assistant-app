@@ -1730,3 +1730,72 @@ export interface PriorityBuyerAccess {
   message?: string;
 }
 
+// ==========================================
+// Monthly Raffle Types
+// ==========================================
+
+export type RaffleStatusType = 'upcoming' | 'active' | 'drawing' | 'completed';
+
+export interface RafflePrize {
+  id: string;
+  name: string;
+  nameSw: string;
+  description?: string;
+  descriptionSw?: string;
+  imageUrl?: string;
+  valueUsd?: number;
+  sponsor?: string;
+}
+
+export interface RaffleEntrySource {
+  source: string;
+  entries: number;
+  earnedAt: string;
+}
+
+export interface UserRaffleStatus {
+  raffleId: string;
+  month: number;
+  year: number;
+  status: RaffleStatusType;
+  drawDate: string;
+  daysRemaining: number;
+  userEntries: number;
+  totalEntries: number;
+  totalParticipants: number;
+  entrySources: RaffleEntrySource[];
+  prize?: RafflePrize;
+  winnerId?: string;
+  winnerName?: string;
+}
+
+export interface RaffleLeaderboardEntry {
+  rank: number;
+  userId: string;
+  fullName: string;
+  totalEntries: number;
+  entryCount: number;
+}
+
+export interface RafflePastWinner {
+  raffleId: string;
+  month: number;
+  year: number;
+  winnerId: string;
+  winnerName: string;
+  prizeName: string;
+  prizeImageUrl?: string;
+  totalEntries: number;
+  totalParticipants: number;
+  drawnAt: string;
+}
+
+export interface AwardRaffleEntryResult {
+  success: boolean;
+  entryId?: string;
+  raffleId: string;
+  totalUserEntries: number;
+  source: string;
+  alreadyAwarded: boolean;
+}
+
