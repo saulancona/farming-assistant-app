@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { TrendingUp, TrendingDown, Sprout, DollarSign, MapPin, BarChart3, ChevronRight } from 'lucide-react';
+import { TrendingUp, TrendingDown, Sprout, DollarSign, MapPin, BarChart3, ChevronRight, Filter } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { format, startOfMonth, eachMonthOfInterval, subMonths, formatDistanceToNow, parseISO } from 'date-fns';
+import { format, startOfMonth, eachMonthOfInterval, subMonths, subDays, startOfYear, formatDistanceToNow, parseISO, isWithinInterval } from 'date-fns';
 import type { DashboardStats, Expense, Income, Field, Task } from '../types';
 import ReadButton from './ReadButton';
 import TalkingButton from './TalkingButton';
@@ -23,11 +23,19 @@ interface DashboardProps {
   onNavigate?: (tab: string) => void;
 }
 
+type DateRangePreset = 'all' | '7d' | '30d' | '90d' | 'ytd' | 'custom';
+
 export default function Dashboard({ stats, expenses = [], income = [], fields = [], tasks = [], onNavigate }: DashboardProps) {
   const { t, i18n } = useTranslation();
   const { user } = useAuth();
   const [farmSizeUnit, setFarmSizeUnit] = useState<'acres' | 'hectares'>('acres');
   const [, setCurrency] = useState<string>('KES'); // Force re-render on currency change
+
+  // Date range filter state
+  const [dateRangePreset, setDateRangePreset] = useState<DateRangePreset>('all');
+  const [customStartDate, setCustomStartDate] = useState('');
+  const [customEndDate, setCustomEndDate] = useState('');
+  const [showDateFilter, setShowDateFilter] = useState(false);
 
   // Rewards data
   const { data: rewardsProfile } = useRewardsProfile(user?.id);
@@ -73,6 +81,45 @@ export default function Dashboard({ stats, expenses = [], income = [], fields = 
     return areaInAcres.toFixed(2);
   };
 
+  // Get date range based on preset
+  const getDateRange = (): { start: Date | null; end: Date | null } => {
+    const now = new Date();
+    switch (dateRangePreset) {
+      case '7d':
+        return { start: subDays(now, 7), end: now };
+      case '30d':
+        return { start: subDays(now, 30), end: now };
+      case '90d':
+        return { start: subDays(now, 90), end: now };
+      case 'ytd':
+        return { start: startOfYear(now), end: now };
+      case 'custom':
+        return {
+          start: customStartDate ? new Date(customStartDate) : null,
+          end: customEndDate ? new Date(customEndDate) : null
+        };
+      default:
+        return { start: null, end: null };
+    }
+  };
+
+  // Filter function for date range
+  const isInDateRange = (dateStr: string): boolean => {
+    if (dateRangePreset === 'all') return true;
+    const { start, end } = getDateRange();
+    if (!start || !end) return true;
+    try {
+      const date = new Date(dateStr);
+      return isWithinInterval(date, { start, end });
+    } catch {
+      return true;
+    }
+  };
+
+  // Filtered data based on date range
+  const filteredExpenses = expenses.filter(e => e.date && isInDateRange(e.date));
+  const filteredIncome = income.filter(i => i.date && isInDateRange(i.date));
+
   // Prepare data for Revenue vs Expenses chart (last 6 months)
   const last6Months = eachMonthOfInterval({
     start: subMonths(startOfMonth(new Date()), 5),
@@ -99,8 +146,8 @@ export default function Dashboard({ stats, expenses = [], income = [], fields = 
     };
   });
 
-  // Prepare data for Expense breakdown by category
-  const expenseByCategory = expenses.reduce((acc, expense) => {
+  // Prepare data for Expense breakdown by category (using filtered data)
+  const expenseByCategory = filteredExpenses.reduce((acc, expense) => {
     const existing = acc.find(item => item.category === expense.category);
     if (existing) {
       existing.value += expense.amount;
@@ -110,8 +157,8 @@ export default function Dashboard({ stats, expenses = [], income = [], fields = 
     return acc;
   }, [] as { category: string; value: number }[]);
 
-  // Prepare data for Income breakdown - show each harvest sale individually
-  const incomeBreakdown = income.map(incomeItem => {
+  // Prepare data for Income breakdown - show each harvest sale individually (using filtered data)
+  const incomeBreakdown = filteredIncome.map(incomeItem => {
     // For harvest sales, show detailed breakdown
     if (incomeItem.source === 'harvest_sale') {
       return {
@@ -249,9 +296,91 @@ export default function Dashboard({ stats, expenses = [], income = [], fields = 
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold text-gray-900">{t('dashboard.title')}</h1>
-        <p className="text-gray-600 mt-1">{t('auth.welcome')}</p>
+      <div className="flex items-start justify-between flex-wrap gap-4">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">{t('dashboard.title')}</h1>
+          <p className="text-gray-600 mt-1">{t('auth.welcome')}</p>
+        </div>
+
+        {/* Date Range Filter */}
+        <div className="relative">
+          <button
+            onClick={() => setShowDateFilter(!showDateFilter)}
+            className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors shadow-sm"
+          >
+            <Filter size={18} className="text-gray-500" />
+            <span className="text-sm font-medium text-gray-700">
+              {dateRangePreset === 'all' ? t('dashboard.allTime', 'All Time') :
+               dateRangePreset === '7d' ? t('dashboard.last7Days', 'Last 7 Days') :
+               dateRangePreset === '30d' ? t('dashboard.last30Days', 'Last 30 Days') :
+               dateRangePreset === '90d' ? t('dashboard.last90Days', 'Last 90 Days') :
+               dateRangePreset === 'ytd' ? t('dashboard.yearToDate', 'Year to Date') :
+               t('dashboard.custom', 'Custom')}
+            </span>
+          </button>
+
+          {showDateFilter && (
+            <div className="absolute right-0 mt-2 w-72 bg-white border border-gray-200 rounded-lg shadow-lg z-20 p-4">
+              <p className="text-xs font-medium text-gray-500 mb-3">{t('dashboard.filterByDate', 'Filter by Date Range')}</p>
+              <div className="space-y-2">
+                {(['all', '7d', '30d', '90d', 'ytd', 'custom'] as DateRangePreset[]).map((preset) => (
+                  <button
+                    key={preset}
+                    onClick={() => {
+                      setDateRangePreset(preset);
+                      if (preset !== 'custom') setShowDateFilter(false);
+                    }}
+                    className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
+                      dateRangePreset === preset
+                        ? 'bg-green-100 text-green-800 font-medium'
+                        : 'hover:bg-gray-100 text-gray-700'
+                    }`}
+                  >
+                    {preset === 'all' ? t('dashboard.allTime', 'All Time') :
+                     preset === '7d' ? t('dashboard.last7Days', 'Last 7 Days') :
+                     preset === '30d' ? t('dashboard.last30Days', 'Last 30 Days') :
+                     preset === '90d' ? t('dashboard.last90Days', 'Last 90 Days') :
+                     preset === 'ytd' ? t('dashboard.yearToDate', 'Year to Date') :
+                     t('dashboard.customRange', 'Custom Range')}
+                  </button>
+                ))}
+              </div>
+
+              {dateRangePreset === 'custom' && (
+                <div className="mt-4 pt-4 border-t border-gray-200 space-y-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                      {t('dashboard.startDate', 'Start Date')}
+                    </label>
+                    <input
+                      type="date"
+                      value={customStartDate}
+                      onChange={(e) => setCustomStartDate(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                      {t('dashboard.endDate', 'End Date')}
+                    </label>
+                    <input
+                      type="date"
+                      value={customEndDate}
+                      onChange={(e) => setCustomEndDate(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                    />
+                  </div>
+                  <button
+                    onClick={() => setShowDateFilter(false)}
+                    className="w-full px-3 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition-colors"
+                  >
+                    {t('common.apply', 'Apply')}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Daily Streak Widget - At the top */}
@@ -558,41 +687,60 @@ export default function Dashboard({ stats, expenses = [], income = [], fields = 
                 className="bg-white rounded-xl shadow-md p-4 md:p-6"
               >
                 <h2 className="text-lg md:text-xl font-semibold text-gray-900 mb-3 md:mb-4">Expenses by Category</h2>
-                <ResponsiveContainer width="100%" height={300}>
+                <ResponsiveContainer width="100%" height={250}>
                   <PieChart>
                     <Pie
                       data={expenseByCategory}
                       cx="50%"
                       cy="50%"
-                      labelLine={true}
-                      label={({ category, value, percent }: any) =>
-                        `${category}: $${value} (${(percent * 100).toFixed(0)}%)`
-                      }
-                      outerRadius={window.innerWidth < 768 ? 50 : 70}
+                      innerRadius={window.innerWidth < 768 ? 40 : 60}
+                      outerRadius={window.innerWidth < 768 ? 70 : 100}
                       fill="#8884d8"
                       dataKey="value"
+                      paddingAngle={2}
                     >
                       {expenseByCategory.map((_entry, index) => (
                         <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                       ))}
                     </Pie>
-                    <Tooltip formatter={(value) => `$${value}`} />
+                    <Tooltip
+                      content={({ active, payload }) => {
+                        if (active && payload && payload.length) {
+                          const data = payload[0].payload;
+                          const total = expenseByCategory.reduce((sum, item) => sum + item.value, 0);
+                          const percent = ((data.value / total) * 100).toFixed(1);
+                          return (
+                            <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-3 text-sm">
+                              <p className="font-medium text-gray-900 capitalize mb-1">{data.category}</p>
+                              <p className="text-red-600 font-bold">${data.value.toLocaleString()}</p>
+                              <p className="text-gray-400 text-xs">{percent}% of total</p>
+                            </div>
+                          );
+                        }
+                        return null;
+                      }}
+                    />
                   </PieChart>
                 </ResponsiveContainer>
                 {/* Legend for better readability */}
                 <div className="mt-4 space-y-2 max-h-32 overflow-y-auto">
-                  {expenseByCategory.map((item, index) => (
-                    <div key={index} className="flex items-center justify-between text-xs">
-                      <div className="flex items-center gap-2">
-                        <div
-                          className="w-3 h-3 rounded-full"
-                          style={{ backgroundColor: COLORS[index % COLORS.length] }}
-                        ></div>
-                        <span className="text-gray-700 capitalize">{item.category}</span>
+                  {expenseByCategory.map((item, index) => {
+                    const total = expenseByCategory.reduce((sum, i) => sum + i.value, 0);
+                    const percent = ((item.value / total) * 100).toFixed(1);
+                    return (
+                      <div key={index} className="flex items-center justify-between text-xs">
+                        <div className="flex items-center gap-2">
+                          <div
+                            className="w-3 h-3 rounded-full"
+                            style={{ backgroundColor: COLORS[index % COLORS.length] }}
+                          ></div>
+                          <span className="text-gray-700 capitalize">{item.category}</span>
+                          <span className="text-gray-400">({percent}%)</span>
+                        </div>
+                        <span className="text-gray-900 font-medium"><ConvertedPrice amount={item.value} /></span>
                       </div>
-                      <span className="text-gray-900 font-medium"><ConvertedPrice amount={item.value} /></span>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </motion.div>
             )}
@@ -606,52 +754,59 @@ export default function Dashboard({ stats, expenses = [], income = [], fields = 
                 className="bg-white rounded-xl shadow-md p-4 md:p-6"
               >
                 <h2 className="text-lg md:text-xl font-semibold text-gray-900 mb-3 md:mb-4">Income Breakdown</h2>
-                <ResponsiveContainer width="100%" height={300}>
+                <ResponsiveContainer width="100%" height={250}>
                   <PieChart>
                     <Pie
                       data={incomeBreakdown}
                       cx="50%"
                       cy="50%"
-                      labelLine={true}
-                      label={({ name, value, percent }: any) =>
-                        `${name}: $${value} (${(percent * 100).toFixed(0)}%)`
-                      }
-                      outerRadius={window.innerWidth < 768 ? 50 : 70}
+                      innerRadius={window.innerWidth < 768 ? 40 : 60}
+                      outerRadius={window.innerWidth < 768 ? 70 : 100}
                       fill="#8884d8"
                       dataKey="value"
+                      paddingAngle={2}
                     >
                       {incomeBreakdown.map((_entry, index) => (
                         <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                       ))}
                     </Pie>
                     <Tooltip
-                      formatter={(value: number, _name: string, props: any) => {
-                        const { payload } = props;
-                        return [
-                          `$${value}`,
-                          <div key="tooltip-details" className="text-xs">
-                            {payload.field && <div>Field: {payload.field}</div>}
-                            <div>Date: {payload.date}</div>
-                          </div>
-                        ];
+                      content={({ active, payload }) => {
+                        if (active && payload && payload.length) {
+                          const data = payload[0].payload;
+                          return (
+                            <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-3 text-sm">
+                              <p className="font-medium text-gray-900 mb-1">{data.name}</p>
+                              <p className="text-green-600 font-bold">${data.value.toLocaleString()}</p>
+                              {data.field && <p className="text-gray-500 text-xs mt-1">Field: {data.field}</p>}
+                              <p className="text-gray-400 text-xs">{data.date}</p>
+                            </div>
+                          );
+                        }
+                        return null;
                       }}
                     />
                   </PieChart>
                 </ResponsiveContainer>
                 {/* Legend for better readability */}
                 <div className="mt-4 space-y-2 max-h-32 overflow-y-auto">
-                  {incomeBreakdown.map((item, index) => (
-                    <div key={index} className="flex items-center justify-between text-xs">
-                      <div className="flex items-center gap-2">
-                        <div
-                          className="w-3 h-3 rounded-full"
-                          style={{ backgroundColor: COLORS[index % COLORS.length] }}
-                        ></div>
-                        <span className="text-gray-700 truncate max-w-[200px]">{item.name}</span>
+                  {incomeBreakdown.map((item, index) => {
+                    const total = incomeBreakdown.reduce((sum, i) => sum + i.value, 0);
+                    const percent = ((item.value / total) * 100).toFixed(1);
+                    return (
+                      <div key={index} className="flex items-center justify-between text-xs">
+                        <div className="flex items-center gap-2">
+                          <div
+                            className="w-3 h-3 rounded-full"
+                            style={{ backgroundColor: COLORS[index % COLORS.length] }}
+                          ></div>
+                          <span className="text-gray-700 truncate max-w-[150px]">{item.name}</span>
+                          <span className="text-gray-400">({percent}%)</span>
+                        </div>
+                        <span className="text-gray-900 font-medium"><ConvertedPrice amount={item.value} /></span>
                       </div>
-                      <span className="text-gray-900 font-medium"><ConvertedPrice amount={item.value} /></span>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </motion.div>
             )}

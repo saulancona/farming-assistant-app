@@ -134,8 +134,187 @@ export interface Expense {
   category: 'seeds' | 'fertilizer' | 'pesticide' | 'labor' | 'equipment' | 'fuel' | 'other';
   description: string;
   amount: number;
+  supplier: string;
   fieldId?: string;
   fieldName?: string;
+  // Source tracking for unified expense view
+  sourceInputCostId?: string;
+  sourceType?: 'manual' | 'input_cost';
+}
+
+// Extended expense type with input cost details (for unified view)
+export interface UnifiedExpense extends Expense {
+  sourceType: 'manual' | 'input_cost';
+  // Additional fields when source is input_cost
+  quantity?: number;
+  unit?: string;
+  unitPrice?: number;
+  inputCostCategory?: InputCostCategory;
+}
+
+// ==========================================
+// Input Cost Calculator Types
+// ==========================================
+
+export type InputCostCategory = 'seed' | 'fertilizer' | 'pesticide' | 'labor' | 'transport' | 'equipment' | 'irrigation' | 'storage' | 'other';
+
+export interface InputCost {
+  id: string;
+  userId: string;
+  fieldId?: string;
+  harvestId?: string;
+  seasonId?: string;
+
+  category: InputCostCategory;
+  itemName: string;
+  quantity?: number;
+  unit?: string;
+  unitPrice?: number;
+  totalAmount: number;
+
+  purchaseDate: string;
+  supplier?: string;
+  receiptPhotoUrl?: string;
+  notes?: string;
+
+  // Calculated/joined fields
+  fieldName?: string;
+  cropType?: string;
+
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface GrowingSeason {
+  id: string;
+  userId: string;
+  fieldId: string;
+  name: string;
+  cropType: string;
+  plantingDate: string;
+  expectedHarvestDate?: string;
+  actualHarvestDate?: string;
+  areaPlanted?: number;
+  areaUnit: 'acres' | 'hectares';
+  status: 'planning' | 'active' | 'harvested' | 'completed';
+  notes?: string;
+
+  // Calculated totals
+  totalCosts?: number;
+  totalRevenue?: number;
+  profit?: number;
+
+  // Joined fields
+  fieldName?: string;
+
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface InputCostSummary {
+  totalCost: number;
+  costPerAcre: number;
+  byCategory: {
+    category: InputCostCategory;
+    total: number;
+    percentage: number;
+    itemCount: number;
+  }[];
+  byMonth: {
+    month: string;
+    total: number;
+  }[];
+  topExpenses: {
+    itemName: string;
+    category: InputCostCategory;
+    totalAmount: number;
+  }[];
+}
+
+export interface CropBudget {
+  id: string;
+  userId: string;
+  cropType: string;
+  season?: string;
+  areaPlanned: number;
+  areaUnit: 'acres' | 'hectares';
+
+  // Budget estimates
+  seedBudget: number;
+  fertilizerBudget: number;
+  pesticideBudget: number;
+  laborBudget: number;
+  transportBudget: number;
+  otherBudget: number;
+  totalBudget: number;
+
+  // Actual vs Budget tracking
+  actualSpent?: number;
+  budgetVariance?: number;
+
+  // Expected returns
+  expectedYield?: number;
+  expectedYieldUnit?: string;
+  expectedPricePerUnit?: number;
+  expectedRevenue?: number;
+  expectedProfit?: number;
+  expectedROI?: number;
+
+  notes?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface InputCostAnalytics {
+  summary: InputCostSummary;
+  trends: {
+    period: string;
+    totalCost: number;
+    costPerAcre: number;
+  }[];
+  comparisons: {
+    category: InputCostCategory;
+    currentPeriod: number;
+    previousPeriod: number;
+    change: number;
+    changePercent: number;
+  }[];
+  recommendations: {
+    type: 'saving' | 'warning' | 'tip';
+    message: string;
+    messageSw?: string;
+    category?: InputCostCategory;
+    potentialSaving?: number;
+  }[];
+}
+
+export interface ProfitProjection {
+  fieldId?: string;
+  cropType: string;
+  areaPlanted: number;
+
+  // Costs
+  totalInputCosts: number;
+  costBreakdown: {
+    category: InputCostCategory;
+    amount: number;
+  }[];
+
+  // Revenue estimates
+  estimatedYield: number;
+  yieldUnit: string;
+  marketPrice: number;
+  estimatedRevenue: number;
+
+  // Profitability
+  estimatedProfit: number;
+  profitMargin: number;
+  roi: number;
+  breakEvenYield: number;
+
+  // Risk assessment
+  riskLevel: 'low' | 'medium' | 'high';
+  riskFactors: string[];
 }
 
 export interface WeatherData {
@@ -243,6 +422,49 @@ export interface StorageBin {
 
 // Phase 3 Types - Community Features
 
+export type GroupCategory =
+  | 'crop_specific'
+  | 'regional'
+  | 'organic'
+  | 'livestock'
+  | 'technology'
+  | 'marketing'
+  | 'women_farmers'
+  | 'youth_farmers'
+  | 'general';
+
+export interface FarmerGroup {
+  id: string;
+  name: string;
+  description?: string;
+  category: GroupCategory;
+  coverImageUrl?: string;
+  iconEmoji: string;
+  memberCount: number;
+  postCount: number;
+  isPublic: boolean;
+  requiresApproval: boolean;
+  createdBy?: string;
+  region?: string;
+  country?: string;
+  tags: string[];
+  createdAt: string;
+  updatedAt?: string;
+  // Client-side fields
+  userRole?: 'member' | 'moderator' | 'admin';
+  joinedAt?: string;
+  isMember?: boolean;
+}
+
+export interface GroupMembership {
+  id: string;
+  groupId: string;
+  userId: string;
+  role: 'member' | 'moderator' | 'admin';
+  status: 'pending' | 'active' | 'banned';
+  joinedAt: string;
+}
+
 export interface CommunityPost {
   id: string;
   authorId: string;
@@ -256,6 +478,9 @@ export interface CommunityPost {
   commentsCount: number;
   createdAt: string;
   updatedAt?: string;
+  // Group association
+  groupId?: string;
+  groupName?: string;
   // Client-side only fields
   isLiked?: boolean;
 }
@@ -1129,6 +1354,7 @@ export interface UserChallengeProgress {
   completedAt?: string;
   xpAwarded: number;
   pointsAwarded: number;
+  weekYear?: string; // ISO week-year (YYYYWW) for weekly reset tracking
   // Joined fields
   challengeName?: string;
   challengeNameSw?: string;

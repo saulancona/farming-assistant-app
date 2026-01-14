@@ -64,11 +64,139 @@ export function useExpenses(userId: string | undefined) {
       if (!userId) return [];
       const { data, error } = await supabase
         .from('expenses')
-        .select('*')
+        .select('*, source_input_cost_id')
         .eq('user_id', userId)
         .order('date', { ascending: false });
       if (error) throw error;
       return toCamelCase(data) as Expense[];
+    },
+    enabled: !!userId,
+    refetchInterval: REFETCH_INTERVAL,
+    refetchIntervalInBackground: true,
+  });
+}
+
+// Unified expenses hook that combines expenses table with input_costs for a complete view
+export function useUnifiedExpenses(userId: string | undefined) {
+  return useQuery({
+    queryKey: ['unifiedExpenses', userId],
+    queryFn: async () => {
+      if (!userId) return { expenses: [], inputCosts: [], combined: [] };
+
+      // Fetch both expenses and input costs in parallel
+      const [expensesResult, inputCostsResult] = await Promise.all([
+        supabase
+          .from('expenses')
+          .select('*, source_input_cost_id')
+          .eq('user_id', userId)
+          .order('date', { ascending: false }),
+        supabase
+          .from('input_costs')
+          .select(`
+            *,
+            fields:field_id (name, crop_type)
+          `)
+          .eq('user_id', userId)
+          .order('purchase_date', { ascending: false })
+      ]);
+
+      if (expensesResult.error) throw expensesResult.error;
+      if (inputCostsResult.error) throw inputCostsResult.error;
+
+      const expenses = toCamelCase(expensesResult.data || []) as (Expense & { sourceInputCostId?: string })[];
+      // Define the shape of input costs for unified view
+      interface InputCostItem {
+        id: string;
+        userId: string;
+        fieldId?: string;
+        category: string;
+        itemName: string;
+        quantity?: number;
+        unit?: string;
+        unitPrice?: number;
+        totalAmount: number;
+        purchaseDate: string;
+        supplier?: string;
+        notes?: string;
+        fieldName?: string;
+        cropType?: string;
+        createdAt: string;
+      }
+
+      const inputCosts: InputCostItem[] = (inputCostsResult.data || []).map((row: Record<string, unknown>) => ({
+        id: row.id as string,
+        userId: row.user_id as string,
+        fieldId: row.field_id as string | undefined,
+        category: row.category as string,
+        itemName: row.item_name as string,
+        quantity: row.quantity as number | undefined,
+        unit: row.unit as string | undefined,
+        unitPrice: row.unit_price as number | undefined,
+        totalAmount: row.total_amount as number,
+        purchaseDate: row.purchase_date as string,
+        supplier: row.supplier as string | undefined,
+        notes: row.notes as string | undefined,
+        fieldName: (row.fields as Record<string, unknown>)?.name as string | undefined,
+        cropType: (row.fields as Record<string, unknown>)?.crop_type as string | undefined,
+        createdAt: row.created_at as string,
+      }));
+
+      // Create a set of input cost IDs that are already synced to expenses
+      const syncedInputCostIds = new Set(
+        expenses
+          .filter(e => e.sourceInputCostId)
+          .map(e => e.sourceInputCostId)
+      );
+
+      // Map input costs to expense format for input costs that aren't synced yet
+      const inputCostCategoryMap: Record<string, Expense['category']> = {
+        seed: 'seeds',
+        fertilizer: 'fertilizer',
+        pesticide: 'pesticide',
+        labor: 'labor',
+        transport: 'fuel',
+        equipment: 'equipment',
+        irrigation: 'other',
+        storage: 'other',
+        other: 'other',
+      };
+
+      // Create unified list: expenses + unsynced input costs converted to expense format
+      const unsyncedInputCostsAsExpenses = inputCosts
+        .filter(ic => !syncedInputCostIds.has(ic.id))
+        .map(ic => ({
+          id: `ic_${ic.id}`, // Prefix to identify as input cost
+          date: ic.purchaseDate,
+          category: inputCostCategoryMap[ic.category] || 'other',
+          description: ic.itemName + (ic.notes ? ` - ${ic.notes}` : ''),
+          amount: ic.totalAmount,
+          supplier: ic.supplier || '',
+          fieldId: ic.fieldId,
+          fieldName: ic.fieldName,
+          // Extra fields to identify source
+          sourceType: 'input_cost' as const,
+          sourceInputCostId: ic.id,
+          quantity: ic.quantity,
+          unit: ic.unit,
+          unitPrice: ic.unitPrice,
+          inputCostCategory: ic.category,
+        }));
+
+      // Mark synced expenses with their source type
+      const markedExpenses = expenses.map(e => ({
+        ...e,
+        sourceType: e.sourceInputCostId ? 'input_cost' as const : 'manual' as const,
+      }));
+
+      // Combine and sort by date
+      const combined = [...markedExpenses, ...unsyncedInputCostsAsExpenses]
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+      return {
+        expenses: markedExpenses,
+        inputCosts,
+        combined,
+      };
     },
     enabled: !!userId,
     refetchInterval: REFETCH_INTERVAL,

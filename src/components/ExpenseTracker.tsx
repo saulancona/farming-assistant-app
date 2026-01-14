@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Edit2, Trash2, DollarSign, Calendar, Tag, X, TrendingUp } from 'lucide-react';
+import { Plus, Edit2, Trash2, DollarSign, Calendar, Tag, X, TrendingUp, ChevronDown, Download, Calculator, Link2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { useTranslation } from 'react-i18next';
 import type { Expense, Field } from '../types';
 import ConvertedPrice from './ConvertedPrice';
 import { useAwardMicroReward } from '../hooks/useMicroWins';
+import { useUIStore } from '../store/uiStore';
 
 interface ExpenseTrackerProps {
   expenses: Expense[];
@@ -18,28 +19,35 @@ interface ExpenseTrackerProps {
 
 export default function ExpenseTracker({ expenses, fields, userId, onAddExpense, onUpdateExpense, onDeleteExpense }: ExpenseTrackerProps) {
   const { t } = useTranslation();
+  const { setActiveTab } = useUIStore();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
   const awardMicroReward = useAwardMicroReward();
-  const [formData, setFormData] = useState<Omit<Expense, 'id'>>({
+  const [formData, setFormData] = useState<Omit<Expense, 'id'> & { fieldIds: string[] }>({
     date: '',
     category: 'other',
     description: '',
     amount: 0,
+    supplier: '',
     fieldId: '',
     fieldName: '',
+    fieldIds: [],
   });
+  const [showFieldDropdown, setShowFieldDropdown] = useState(false);
 
   const handleOpenModal = (expense?: Expense) => {
     if (expense) {
       setEditingExpense(expense);
+      const existingFieldIds = expense.fieldId ? [expense.fieldId] : [];
       setFormData({
         date: expense.date,
         category: expense.category,
         description: expense.description,
         amount: expense.amount,
+        supplier: expense.supplier || '',
         fieldId: expense.fieldId || '',
         fieldName: expense.fieldName || '',
+        fieldIds: existingFieldIds,
       });
     } else {
       setEditingExpense(null);
@@ -48,11 +56,14 @@ export default function ExpenseTracker({ expenses, fields, userId, onAddExpense,
         category: 'other',
         description: '',
         amount: 0,
+        supplier: '',
         fieldId: '',
         fieldName: '',
+        fieldIds: [],
       });
     }
     setIsModalOpen(true);
+    setShowFieldDropdown(false);
   };
 
   const handleCloseModal = () => {
@@ -62,18 +73,22 @@ export default function ExpenseTracker({ expenses, fields, userId, onAddExpense,
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const selectedField = fields.find(f => f.id === formData.fieldId);
+    const selectedFields = fields.filter(f => formData.fieldIds.includes(f.id));
     const expenseData: any = {
       date: formData.date,
       category: formData.category,
       description: formData.description,
       amount: formData.amount,
+      supplier: formData.supplier,
     };
 
-    // Only include fieldId and fieldName if a field was actually selected
-    if (formData.fieldId && selectedField) {
-      expenseData.fieldId = formData.fieldId;
-      expenseData.fieldName = selectedField.name;
+    // Include fieldId/fieldName for backward compatibility (use first selected field)
+    if (selectedFields.length > 0) {
+      expenseData.fieldId = selectedFields[0].id;
+      // Show "All Fields" when all fields are selected, otherwise list names
+      expenseData.fieldName = selectedFields.length === fields.length
+        ? t('common.allFields', 'All Fields')
+        : selectedFields.map(f => f.name).join(', ');
     }
 
     if (editingExpense) {
@@ -89,6 +104,29 @@ export default function ExpenseTracker({ expenses, fields, userId, onAddExpense,
       }
     }
     handleCloseModal();
+  };
+
+  const toggleFieldSelection = (fieldId: string) => {
+    setFormData(prev => ({
+      ...prev,
+      fieldIds: prev.fieldIds.includes(fieldId)
+        ? prev.fieldIds.filter(id => id !== fieldId)
+        : [...prev.fieldIds, fieldId]
+    }));
+  };
+
+  const selectAllFields = () => {
+    setFormData(prev => ({
+      ...prev,
+      fieldIds: fields.map(f => f.id)
+    }));
+  };
+
+  const clearAllFields = () => {
+    setFormData(prev => ({
+      ...prev,
+      fieldIds: []
+    }));
   };
 
   const getCategoryColor = (category: Expense['category']) => {
@@ -123,21 +161,112 @@ export default function ExpenseTracker({ expenses, fields, userId, onAddExpense,
     new Date(b.date).getTime() - new Date(a.date).getTime()
   );
 
+  const exportToCSV = () => {
+    if (expenses.length === 0) return;
+
+    const headers = ['Date', 'Category', 'Description', 'Supplier', 'Field', 'Amount'];
+    const csvRows = [
+      headers.join(','),
+      ...sortedExpenses.map(expense => [
+        format(new Date(expense.date), 'yyyy-MM-dd'),
+        expense.category,
+        `"${expense.description.replace(/"/g, '""')}"`,
+        `"${(expense.supplier || '').replace(/"/g, '""')}"`,
+        `"${(expense.fieldName || '').replace(/"/g, '""')}"`,
+        expense.amount.toFixed(2)
+      ].join(','))
+    ];
+
+    const csvContent = csvRows.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `expenses_${format(new Date(), 'yyyy-MM-dd')}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Check if expense is from input cost calculator
+  const isFromInputCost = (expense: Expense): boolean => {
+    return !!(expense.sourceInputCostId || expense.sourceType === 'input_cost' || expense.description?.startsWith('[Input Cost]'));
+  };
+
+  // Count expenses by source
+  const manualExpenses = expenses.filter(e => !isFromInputCost(e));
+  const inputCostExpenses = expenses.filter(e => isFromInputCost(e));
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">{t('expenses.trackerTitle', 'Expense Tracker')}</h1>
           <p className="text-gray-600 mt-1">{t('expenses.monitorDesc', 'Monitor and manage farm expenses')}</p>
         </div>
-        <button
-          onClick={() => handleOpenModal()}
-          className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors shadow-md"
-        >
-          <Plus size={20} />
-          {t('expenses.addExpense', 'Add Expense')}
-        </button>
+        <div className="flex items-center gap-2">
+          {expenses.length > 0 && (
+            <button
+              onClick={exportToCSV}
+              className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+            >
+              <Download size={20} />
+              {t('common.exportCSV', 'Export CSV')}
+            </button>
+          )}
+          <button
+            onClick={() => setActiveTab('costs')}
+            className="flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-700 rounded-lg hover:bg-emerald-100 transition-colors border border-emerald-200"
+            title={t('expenses.openCostCalculator', 'Open Input Cost Calculator for detailed tracking')}
+          >
+            <Calculator size={20} />
+            {t('expenses.inputCosts', 'Input Costs')}
+          </button>
+          <button
+            onClick={() => handleOpenModal()}
+            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors shadow-md"
+          >
+            <Plus size={20} />
+            {t('expenses.addExpense', 'Add Expense')}
+          </button>
+        </div>
       </div>
+
+      {/* Data Source Info Banner */}
+      {inputCostExpenses.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 rounded-xl p-4"
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-emerald-100 rounded-lg flex items-center justify-center">
+                <Link2 className="text-emerald-600" size={20} />
+              </div>
+              <div>
+                <p className="font-medium text-emerald-800">
+                  {t('expenses.unifiedView', 'Unified Expense View')}
+                </p>
+                <p className="text-sm text-emerald-600">
+                  {t('expenses.showingBothSources', 'Showing {{manual}} manual + {{inputCost}} from Input Cost Calculator', {
+                    manual: manualExpenses.length,
+                    inputCost: inputCostExpenses.length
+                  })}
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => setActiveTab('costs')}
+              className="text-sm text-emerald-700 hover:text-emerald-900 font-medium flex items-center gap-1"
+            >
+              {t('expenses.viewInCalculator', 'View in Calculator')}
+              <Calculator size={16} />
+            </button>
+          </div>
+        </motion.div>
+      )}
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -234,6 +363,9 @@ export default function ExpenseTracker({ expenses, fields, userId, onAddExpense,
                   {t('expenses.description', 'Description')}
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  {t('expenses.supplier', 'Supplier')}
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   {t('expenses.field', 'Field')}
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -245,53 +377,81 @@ export default function ExpenseTracker({ expenses, fields, userId, onAddExpense,
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {sortedExpenses.map((expense, index) => (
-                <motion.tr
-                  key={expense.id}
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: index * 0.05 }}
-                  className="hover:bg-gray-50"
-                >
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex items-center gap-2 text-sm text-gray-900">
-                      <Calendar size={16} className="text-gray-400" />
-                      {format(new Date(expense.date), 'MMM d, yyyy')}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${getCategoryColor(expense.category)}`}>
-                      {getCategoryIcon()}
-                      <span className="capitalize">{t(`expenses.${expense.category}`, expense.category)}</span>
-                    </span>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="text-sm text-gray-900">{expense.description}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-600">{expense.fieldName || t('expenses.none', '-')}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-semibold text-gray-900"><ConvertedPrice amount={expense.amount} /></div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => handleOpenModal(expense)}
-                        className="p-1 text-gray-600 hover:text-primary-600 transition-colors"
-                      >
-                        <Edit2 size={16} />
-                      </button>
-                      <button
-                        onClick={() => onDeleteExpense(expense.id)}
-                        className="p-1 text-gray-600 hover:text-red-600 transition-colors"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  </td>
-                </motion.tr>
-              ))}
+              {sortedExpenses.map((expense, index) => {
+                const fromInputCost = isFromInputCost(expense);
+                return (
+                  <motion.tr
+                    key={expense.id}
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: index * 0.05 }}
+                    className={`hover:bg-gray-50 ${fromInputCost ? 'bg-emerald-50/30' : ''}`}
+                  >
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex items-center gap-2 text-sm text-gray-900">
+                        <Calendar size={16} className="text-gray-400" />
+                        {format(new Date(expense.date), 'MMM d, yyyy')}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex flex-col gap-1">
+                        <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${getCategoryColor(expense.category)}`}>
+                          {getCategoryIcon()}
+                          <span className="capitalize">{t(`expenses.${expense.category}`, expense.category)}</span>
+                        </span>
+                        {fromInputCost && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-emerald-100 text-emerald-700">
+                            <Calculator size={10} />
+                            {t('expenses.fromCostCalc', 'Input Cost')}
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="text-sm text-gray-900">
+                        {expense.description?.replace('[Input Cost] ', '')}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-600">{expense.supplier || t('expenses.none', '-')}</div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-600">{expense.fieldName || t('expenses.none', '-')}</div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm font-semibold text-gray-900"><ConvertedPrice amount={expense.amount} /></div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex gap-2">
+                        {fromInputCost ? (
+                          <button
+                            onClick={() => setActiveTab('costs')}
+                            className="p-1 text-emerald-600 hover:text-emerald-800 transition-colors"
+                            title={t('expenses.editInCalculator', 'Edit in Input Cost Calculator')}
+                          >
+                            <Calculator size={16} />
+                          </button>
+                        ) : (
+                          <>
+                            <button
+                              onClick={() => handleOpenModal(expense)}
+                              className="p-1 text-gray-600 hover:text-primary-600 transition-colors"
+                            >
+                              <Edit2 size={16} />
+                            </button>
+                            <button
+                              onClick={() => onDeleteExpense(expense.id)}
+                              className="p-1 text-gray-600 hover:text-red-600 transition-colors"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </td>
+                  </motion.tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -375,6 +535,20 @@ export default function ExpenseTracker({ expenses, fields, userId, onAddExpense,
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
+                      {t('expenses.supplier', 'Supplier')}
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={formData.supplier}
+                      onChange={(e) => setFormData({ ...formData, supplier: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                      placeholder="e.g., Farm Supplies Co."
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
                       {t('expenses.amountLabel', 'Amount')} ($)
                     </label>
                     <input
@@ -388,22 +562,116 @@ export default function ExpenseTracker({ expenses, fields, userId, onAddExpense,
                     />
                   </div>
 
-                  <div>
+                  <div className="relative">
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      {t('expenses.fieldOptional', 'Field (optional)')}
+                      {t('expenses.fieldsOptional', 'Fields (optional)')}
                     </label>
-                    <select
-                      value={formData.fieldId}
-                      onChange={(e) => setFormData({ ...formData, fieldId: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                    <button
+                      type="button"
+                      onClick={() => setShowFieldDropdown(!showFieldDropdown)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white text-left flex items-center justify-between"
                     >
-                      <option value="">{t('expenses.none', 'None')}</option>
-                      {fields.map((field) => (
-                        <option key={field.id} value={field.id}>
-                          {field.name} ({field.cropType})
-                        </option>
-                      ))}
-                    </select>
+                      <span className={formData.fieldIds.length === 0 ? 'text-gray-400' : 'text-gray-900'}>
+                        {formData.fieldIds.length === 0
+                          ? t('expenses.selectFields', 'Select fields...')
+                          : formData.fieldIds.length === fields.length && fields.length > 0
+                            ? t('common.allFields', 'All Fields')
+                            : formData.fieldIds.length === 1
+                              ? fields.find(f => f.id === formData.fieldIds[0])?.name
+                              : t('expenses.fieldsSelected', '{{count}} fields selected', { count: formData.fieldIds.length })}
+                      </span>
+                      <ChevronDown size={16} className={`text-gray-400 transition-transform ${showFieldDropdown ? 'rotate-180' : ''}`} />
+                    </button>
+
+                    {showFieldDropdown && (
+                      <div className="absolute z-10 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                        <div className="p-2 border-b border-gray-200 flex gap-2">
+                          <button
+                            type="button"
+                            onClick={selectAllFields}
+                            className="text-xs text-green-600 hover:text-green-700 font-medium"
+                          >
+                            {t('common.selectAll', 'Select All')}
+                          </button>
+                          <span className="text-gray-300">|</span>
+                          <button
+                            type="button"
+                            onClick={clearAllFields}
+                            className="text-xs text-gray-500 hover:text-gray-700 font-medium"
+                          >
+                            {t('common.clearAll', 'Clear All')}
+                          </button>
+                        </div>
+                        {fields.length === 0 ? (
+                          <div className="p-3 text-sm text-gray-500 text-center">
+                            {t('expenses.noFieldsAvailable', 'No fields available')}
+                          </div>
+                        ) : (
+                          <>
+                            {/* All Fields option */}
+                            <label
+                              className="flex items-center gap-3 px-3 py-2 hover:bg-green-50 cursor-pointer border-b border-gray-100 bg-green-50/50"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={formData.fieldIds.length === fields.length && fields.length > 0}
+                                onChange={() => {
+                                  if (formData.fieldIds.length === fields.length) {
+                                    clearAllFields();
+                                  } else {
+                                    selectAllFields();
+                                  }
+                                }}
+                                className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500"
+                              />
+                              <span className="text-sm font-medium text-green-700">
+                                {t('common.allFields', 'All Fields')}
+                              </span>
+                            </label>
+                            {fields.map((field) => (
+                              <label
+                                key={field.id}
+                                className="flex items-center gap-3 px-3 py-2 hover:bg-gray-50 cursor-pointer"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={formData.fieldIds.includes(field.id)}
+                                  onChange={() => toggleFieldSelection(field.id)}
+                                  className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500"
+                                />
+                                <span className="text-sm text-gray-700">
+                                  {field.name} ({field.cropType})
+                                </span>
+                              </label>
+                            ))}
+                          </>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Selected fields tags - hide when all fields selected */}
+                    {formData.fieldIds.length > 0 && formData.fieldIds.length < fields.length && (
+                      <div className="flex flex-wrap gap-1 mt-2">
+                        {formData.fieldIds.map(fieldId => {
+                          const field = fields.find(f => f.id === fieldId);
+                          return field ? (
+                            <span
+                              key={fieldId}
+                              className="inline-flex items-center gap-1 px-2 py-1 bg-green-100 text-green-700 text-xs rounded-full"
+                            >
+                              {field.name}
+                              <button
+                                type="button"
+                                onClick={() => toggleFieldSelection(fieldId)}
+                                className="hover:text-green-900"
+                              >
+                                <X size={12} />
+                              </button>
+                            </span>
+                          ) : null;
+                        })}
+                      </div>
+                    )}
                   </div>
 
                   <div className="flex gap-3 pt-4">
