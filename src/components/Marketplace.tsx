@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Edit2, Trash2, MapPin, Calendar, Package, X, Search, Eye, ShoppingCart, Truck, Phone, User, Upload, Image as ImageIcon, Filter, ChevronDown, LayoutGrid, Bookmark, Building2, ClipboardList, AlertCircle } from 'lucide-react';
+import { Plus, Edit2, Trash2, MapPin, Calendar, Package, X, Search, Eye, ShoppingCart, Truck, Phone, User, Upload, Image as ImageIcon, Filter, ChevronDown, LayoutGrid, Bookmark, Building2, ClipboardList, AlertCircle, Loader } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { useAuth } from '../contexts/AuthContext';
@@ -9,6 +9,7 @@ import { useInventory } from '../hooks/useSupabaseData';
 import type { MarketplaceListing, Income, Order } from '../types';
 import * as db from '../services/database';
 import { getPreferredCurrency, formatPrice, convertBetweenCurrencies } from '../services/currency';
+import { verifyMarketplacePhoto } from '../services/photoVerification';
 import ConfirmDialog from './ConfirmDialog';
 import {
   PRODUCT_CATEGORIES,
@@ -51,6 +52,7 @@ export default function Marketplace({ onAddIncome }: MarketplaceProps) {
   const [showOrderHistory, setShowOrderHistory] = useState(false);
   const [showSellerOrders, setShowSellerOrders] = useState(false);
   const [selectedInventoryId, setSelectedInventoryId] = useState<string>('');
+  const [isVerifyingPhoto, setIsVerifyingPhoto] = useState(false);
 
   // Fetch user's inventory for product selection
   const { data: inventoryItems = [] } = useInventory(user?.id);
@@ -264,12 +266,56 @@ export default function Marketplace({ onAddIncome }: MarketplaceProps) {
     setImageUrlInput('');
   };
 
-  const handleAddImageUrl = () => {
-    if (imageUrlInput.trim()) {
-      const newImages = [...imageUrls, imageUrlInput.trim()];
+  const handleAddImageUrl = async () => {
+    if (!imageUrlInput.trim()) return;
+
+    const url = imageUrlInput.trim();
+
+    // Check for duplicate
+    if (imageUrls.includes(url)) {
+      toast.error('This image URL has already been added');
+      return;
+    }
+
+    // Start verification
+    setIsVerifyingPhoto(true);
+    const verifyingToast = toast.loading('Verifying photo...');
+
+    try {
+      // Verify the photo is not AI-generated
+      const result = await verifyMarketplacePhoto(url);
+
+      if (!result.isValid) {
+        toast.dismiss(verifyingToast);
+        if (result.isAiGenerated) {
+          toast.error(
+            'AI-generated images are not allowed. Please upload a real photo of your product.',
+            { duration: 5000 }
+          );
+        } else {
+          toast.error(result.reason || 'Photo verification failed. Please use a different image.', { duration: 5000 });
+        }
+        return;
+      }
+
+      // Photo passed verification - add it
+      const newImages = [...imageUrls, url];
       setImageUrls(newImages);
       setFormData({ ...formData, images: newImages });
       setImageUrlInput('');
+      toast.dismiss(verifyingToast);
+      toast.success('Photo verified and added!');
+    } catch (error) {
+      console.error('Photo verification error:', error);
+      toast.dismiss(verifyingToast);
+      // On error, still add the photo (graceful degradation)
+      const newImages = [...imageUrls, url];
+      setImageUrls(newImages);
+      setFormData({ ...formData, images: newImages });
+      setImageUrlInput('');
+      toast.success('Photo added');
+    } finally {
+      setIsVerifyingPhoto(false);
     }
   };
 
@@ -1433,21 +1479,32 @@ export default function Marketplace({ onAddIncome }: MarketplaceProps) {
                               value={imageUrlInput}
                               onChange={(e) => setImageUrlInput(e.target.value)}
                               onKeyPress={(e) => {
-                                if (e.key === 'Enter') {
+                                if (e.key === 'Enter' && !isVerifyingPhoto) {
                                   e.preventDefault();
                                   handleAddImageUrl();
                                 }
                               }}
-                              className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                              disabled={isVerifyingPhoto}
+                              className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 disabled:bg-gray-100"
                               placeholder="Enter image URL (e.g., https://example.com/image.jpg)"
                             />
                             <button
                               type="button"
                               onClick={handleAddImageUrl}
-                              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
+                              disabled={isVerifyingPhoto || !imageUrlInput.trim()}
+                              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 disabled:bg-blue-400 disabled:cursor-not-allowed"
                             >
-                              <Upload size={16} />
-                              Add
+                              {isVerifyingPhoto ? (
+                                <>
+                                  <Loader size={16} className="animate-spin" />
+                                  Verifying...
+                                </>
+                              ) : (
+                                <>
+                                  <Upload size={16} />
+                                  Add
+                                </>
+                              )}
                             </button>
                           </div>
 
@@ -1478,7 +1535,7 @@ export default function Marketplace({ onAddIncome }: MarketplaceProps) {
 
                           <p className="text-xs text-gray-500">
                             <ImageIcon size={12} className="inline mr-1" />
-                            Add up to 5 images. Use image hosting services like Imgur, Cloudinary, or your own server.
+                            Add up to 5 real product photos. AI-generated images will be rejected.
                           </p>
                         </div>
                       </div>
