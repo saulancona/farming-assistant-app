@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Edit2, Trash2, TrendingUp, Calendar, X, DollarSign } from 'lucide-react';
+import { Plus, Edit2, Trash2, TrendingUp, Calendar, X, DollarSign, ChevronDown, Download } from 'lucide-react';
 import { format } from 'date-fns';
+import { useTranslation } from 'react-i18next';
 import type { Income, Field } from '../types';
 import ConvertedPrice from './ConvertedPrice';
 import { useAwardMicroReward } from '../hooks/useMicroWins';
@@ -16,21 +17,25 @@ interface IncomeTrackerProps {
 }
 
 export default function IncomeTracker({ income, fields, userId, onAddIncome, onUpdateIncome, onDeleteIncome }: IncomeTrackerProps) {
+  const { t } = useTranslation();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingIncome, setEditingIncome] = useState<Income | null>(null);
   const awardMicroReward = useAwardMicroReward();
-  const [formData, setFormData] = useState<Omit<Income, 'id'>>({
+  const [formData, setFormData] = useState<Omit<Income, 'id'> & { fieldIds: string[] }>({
     date: '',
     source: 'other',
     description: '',
     amount: 0,
     fieldId: '',
     fieldName: '',
+    fieldIds: [],
   });
+  const [showFieldDropdown, setShowFieldDropdown] = useState(false);
 
   const handleOpenModal = (incomeItem?: Income) => {
     if (incomeItem) {
       setEditingIncome(incomeItem);
+      const existingFieldIds = incomeItem.fieldId ? [incomeItem.fieldId] : [];
       setFormData({
         date: incomeItem.date,
         source: incomeItem.source,
@@ -38,6 +43,7 @@ export default function IncomeTracker({ income, fields, userId, onAddIncome, onU
         amount: incomeItem.amount,
         fieldId: incomeItem.fieldId || '',
         fieldName: incomeItem.fieldName || '',
+        fieldIds: existingFieldIds,
       });
     } else {
       setEditingIncome(null);
@@ -48,9 +54,11 @@ export default function IncomeTracker({ income, fields, userId, onAddIncome, onU
         amount: 0,
         fieldId: '',
         fieldName: '',
+        fieldIds: [],
       });
     }
     setIsModalOpen(true);
+    setShowFieldDropdown(false);
   };
 
   const handleCloseModal = () => {
@@ -60,7 +68,7 @@ export default function IncomeTracker({ income, fields, userId, onAddIncome, onU
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const selectedField = fields.find(f => f.id === formData.fieldId);
+    const selectedFields = fields.filter(f => formData.fieldIds.includes(f.id));
     const incomeData: any = {
       date: formData.date,
       source: formData.source,
@@ -68,10 +76,13 @@ export default function IncomeTracker({ income, fields, userId, onAddIncome, onU
       amount: formData.amount,
     };
 
-    // Only include fieldId and fieldName if a field was actually selected
-    if (formData.fieldId && selectedField) {
-      incomeData.fieldId = formData.fieldId;
-      incomeData.fieldName = selectedField.name;
+    // Include fieldId/fieldName for backward compatibility (use first selected field)
+    if (selectedFields.length > 0) {
+      incomeData.fieldId = selectedFields[0].id;
+      // Show "All Fields" when all fields are selected, otherwise list names
+      incomeData.fieldName = selectedFields.length === fields.length
+        ? t('common.allFields', 'All Fields')
+        : selectedFields.map(f => f.name).join(', ');
     }
 
     if (editingIncome) {
@@ -87,6 +98,29 @@ export default function IncomeTracker({ income, fields, userId, onAddIncome, onU
       }
     }
     handleCloseModal();
+  };
+
+  const toggleFieldSelection = (fieldId: string) => {
+    setFormData(prev => ({
+      ...prev,
+      fieldIds: prev.fieldIds.includes(fieldId)
+        ? prev.fieldIds.filter(id => id !== fieldId)
+        : [...prev.fieldIds, fieldId]
+    }));
+  };
+
+  const selectAllFields = () => {
+    setFormData(prev => ({
+      ...prev,
+      fieldIds: fields.map(f => f.id)
+    }));
+  };
+
+  const clearAllFields = () => {
+    setFormData(prev => ({
+      ...prev,
+      fieldIds: []
+    }));
   };
 
   const getSourceColor = (source: Income['source']) => {
@@ -126,20 +160,62 @@ export default function IncomeTracker({ income, fields, userId, onAddIncome, onU
     return acc;
   }, {} as Record<string, number>);
 
+  const sortedIncome = [...income].sort((a, b) =>
+    new Date(b.date).getTime() - new Date(a.date).getTime()
+  );
+
+  const exportToCSV = () => {
+    if (income.length === 0) return;
+
+    const headers = ['Date', 'Source', 'Description', 'Field', 'Amount'];
+    const csvRows = [
+      headers.join(','),
+      ...sortedIncome.map(item => [
+        format(new Date(item.date), 'yyyy-MM-dd'),
+        getSourceLabel(item.source),
+        `"${item.description.replace(/"/g, '""')}"`,
+        `"${(item.fieldName || '').replace(/"/g, '""')}"`,
+        item.amount.toFixed(2)
+      ].join(','))
+    ];
+
+    const csvContent = csvRows.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `income_${format(new Date(), 'yyyy-MM-dd')}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Income Tracker</h1>
-          <p className="text-gray-600 mt-1">Track farm revenue and earnings</p>
+          <h1 className="text-3xl font-bold text-gray-900">{t('income.trackerTitle', 'Income Tracker')}</h1>
+          <p className="text-gray-600 mt-1">{t('income.trackRevenue', 'Track farm revenue and earnings')}</p>
         </div>
-        <button
-          onClick={() => handleOpenModal()}
-          className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors shadow-md"
-        >
-          <Plus size={20} />
-          Add Income
-        </button>
+        <div className="flex items-center gap-2">
+          {income.length > 0 && (
+            <button
+              onClick={exportToCSV}
+              className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+            >
+              <Download size={20} />
+              {t('common.exportCSV', 'Export CSV')}
+            </button>
+          )}
+          <button
+            onClick={() => handleOpenModal()}
+            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors shadow-md"
+          >
+            <Plus size={20} />
+            {t('income.addIncome', 'Add Income')}
+          </button>
+        </div>
       </div>
 
       {/* Summary Cards */}
@@ -355,22 +431,116 @@ export default function IncomeTracker({ income, fields, userId, onAddIncome, onU
                     />
                   </div>
 
-                  <div>
+                  <div className="relative">
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Field (optional)
+                      {t('income.fieldsOptional', 'Fields (optional)')}
                     </label>
-                    <select
-                      value={formData.fieldId}
-                      onChange={(e) => setFormData({ ...formData, fieldId: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                    <button
+                      type="button"
+                      onClick={() => setShowFieldDropdown(!showFieldDropdown)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 bg-white text-left flex items-center justify-between"
                     >
-                      <option value="">None</option>
-                      {fields.map((field) => (
-                        <option key={field.id} value={field.id}>
-                          {field.name} - {field.cropType}
-                        </option>
-                      ))}
-                    </select>
+                      <span className={formData.fieldIds.length === 0 ? 'text-gray-400' : 'text-gray-900'}>
+                        {formData.fieldIds.length === 0
+                          ? t('income.selectFields', 'Select fields...')
+                          : formData.fieldIds.length === fields.length && fields.length > 0
+                            ? t('common.allFields', 'All Fields')
+                            : formData.fieldIds.length === 1
+                              ? fields.find(f => f.id === formData.fieldIds[0])?.name
+                              : t('income.fieldsSelected', '{{count}} fields selected', { count: formData.fieldIds.length })}
+                      </span>
+                      <ChevronDown size={16} className={`text-gray-400 transition-transform ${showFieldDropdown ? 'rotate-180' : ''}`} />
+                    </button>
+
+                    {showFieldDropdown && (
+                      <div className="absolute z-10 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                        <div className="p-2 border-b border-gray-200 flex gap-2">
+                          <button
+                            type="button"
+                            onClick={selectAllFields}
+                            className="text-xs text-green-600 hover:text-green-700 font-medium"
+                          >
+                            {t('common.selectAll', 'Select All')}
+                          </button>
+                          <span className="text-gray-300">|</span>
+                          <button
+                            type="button"
+                            onClick={clearAllFields}
+                            className="text-xs text-gray-500 hover:text-gray-700 font-medium"
+                          >
+                            {t('common.clearAll', 'Clear All')}
+                          </button>
+                        </div>
+                        {fields.length === 0 ? (
+                          <div className="p-3 text-sm text-gray-500 text-center">
+                            {t('income.noFieldsAvailable', 'No fields available')}
+                          </div>
+                        ) : (
+                          <>
+                            {/* All Fields option */}
+                            <label
+                              className="flex items-center gap-3 px-3 py-2 hover:bg-green-50 cursor-pointer border-b border-gray-100 bg-green-50/50"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={formData.fieldIds.length === fields.length && fields.length > 0}
+                                onChange={() => {
+                                  if (formData.fieldIds.length === fields.length) {
+                                    clearAllFields();
+                                  } else {
+                                    selectAllFields();
+                                  }
+                                }}
+                                className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500"
+                              />
+                              <span className="text-sm font-medium text-green-700">
+                                {t('common.allFields', 'All Fields')}
+                              </span>
+                            </label>
+                            {fields.map((field) => (
+                            <label
+                              key={field.id}
+                              className="flex items-center gap-3 px-3 py-2 hover:bg-gray-50 cursor-pointer"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={formData.fieldIds.includes(field.id)}
+                                onChange={() => toggleFieldSelection(field.id)}
+                                className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500"
+                              />
+                              <span className="text-sm text-gray-700">
+                                {field.name} - {field.cropType}
+                              </span>
+                            </label>
+                            ))}
+                          </>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Selected fields tags - hide when all fields selected */}
+                    {formData.fieldIds.length > 0 && formData.fieldIds.length < fields.length && (
+                      <div className="flex flex-wrap gap-1 mt-2">
+                        {formData.fieldIds.map(fieldId => {
+                          const field = fields.find(f => f.id === fieldId);
+                          return field ? (
+                            <span
+                              key={fieldId}
+                              className="inline-flex items-center gap-1 px-2 py-1 bg-green-100 text-green-700 text-xs rounded-full"
+                            >
+                              {field.name}
+                              <button
+                                type="button"
+                                onClick={() => toggleFieldSelection(fieldId)}
+                                className="hover:text-green-900"
+                              >
+                                <X size={12} />
+                              </button>
+                            </span>
+                          ) : null;
+                        })}
+                      </div>
+                    )}
                   </div>
 
                   <div className="flex gap-3 pt-4">

@@ -4,7 +4,7 @@ import { Loader } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from './contexts/AuthContext';
 import { useUIStore } from './store/uiStore';
-import { useFields, useExpenses, useIncome, useTasks, useInventory, useStorageBins } from './hooks/useSupabaseData';
+import { useFields, useExpenses, useIncome, useTasks, useInventory } from './hooks/useSupabaseData';
 import { useRealtimeSubscriptions } from './hooks/useRealtimeSubscriptions';
 import { useWeatherData, useMarketData } from './hooks/useWeatherAndMarket';
 import { useUpdateStreak } from './hooks/useRewards';
@@ -40,7 +40,6 @@ function App() {
   const { data: income = [] } = useIncome(user?.id);
   const { data: tasks = [] } = useTasks(user?.id);
   const { data: inventory = [] } = useInventory(user?.id);
-  const { data: storageBins = [] } = useStorageBins(user?.id);
   const { weatherData, refresh: refreshWeather } = useWeatherData();
   const { marketPrices, refresh: refreshMarkets } = useMarketData();
 
@@ -153,7 +152,6 @@ function App() {
               income={income}
               tasks={tasks}
               inventory={inventory}
-              storageBins={storageBins}
               weatherData={weatherData}
               marketPrices={marketPrices}
               farmLocation={farmLocation}

@@ -10,6 +10,7 @@ import {
   navigationCategories,
   getNavigationItemsByCategory,
   voiceLabelKeys,
+  standaloneBottomItems,
   type NavigationCategory,
 } from '../../config/navigation';
 import type { Task, WeatherData } from '../../types';
@@ -166,6 +167,34 @@ export default function MobileHeader({ tasks, weatherData, onRequestAuth }: Mobi
                   </div>
                 );
               })}
+
+              {/* Standalone Bottom Items (Weather, Settings) */}
+              <div className="mt-4 pt-4 border-t border-gray-200">
+                {standaloneBottomItems.map((item) => {
+                  const ItemIcon = item.icon;
+                  const isActive = activeTab === item.id;
+                  const label = t(item.labelKey, item.labelDefault);
+
+                  return (
+                    <TalkingButton
+                      key={item.id}
+                      voiceLabel={getNavVoiceLabel(item.id, label)}
+                      onClick={() => {
+                        setActiveTab(item.id);
+                        setIsMobileMenuOpen(false);
+                      }}
+                      className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors min-h-[48px] mb-1 ${
+                        isActive
+                          ? 'bg-primary-100 text-primary-700 font-medium'
+                          : 'text-gray-600 hover:bg-gray-50'
+                      }`}
+                    >
+                      <ItemIcon size={20} />
+                      <span>{label}</span>
+                    </TalkingButton>
+                  );
+                })}
+              </div>
             </div>
           </motion.nav>
         )}

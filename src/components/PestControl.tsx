@@ -1,13 +1,17 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Camera, Upload, X, AlertTriangle, Check, Loader, Bug, Sprout, Mic, Volume2 } from 'lucide-react';
+import { Camera, Upload, X, AlertTriangle, Check, Loader, Bug, Sprout, Mic, Volume2, Calendar } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { analyzePestWithAI, type PestDiagnosis } from '../services/pestDetection';
 import { speak, listen } from '../utils/simpleVoice';
 import { compressImage, COMPRESSION_PRESETS, formatBytes } from '../utils/imageCompression';
+import { useAuth } from '../contexts/AuthContext';
+import { supabase } from '../lib/supabase';
+import toast from 'react-hot-toast';
 
 export default function PestControl() {
   const { t } = useTranslation();
+  const { user } = useAuth();
   const [images, setImages] = useState<string[]>([]);
   const [description, setDescription] = useState('');
   const [cropName, setCropName] = useState('');
@@ -17,6 +21,8 @@ export default function PestControl() {
   const [isListening, setIsListening] = useState(false);
   const [isCompressing, setIsCompressing] = useState(false);
   const [compressionStats, setCompressionStats] = useState<string>('');
+  const [savedToCalendar, setSavedToCalendar] = useState(false);
+  const [isSavingToCalendar, setIsSavingToCalendar] = useState(false);
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -91,6 +97,11 @@ export default function PestControl() {
       const result = await analyzePestWithAI(description, images, cropName || undefined);
       setDiagnosis(result);
 
+      // Auto-save diagnosis to calendar
+      if (user) {
+        addDiagnosisToCalendar(result);
+      }
+
       // Auto-read diagnosis if enabled
       // const settings = voiceService.getSettings();
       // if (settings.enabled && settings.autoRead) {
@@ -111,6 +122,7 @@ export default function PestControl() {
     setCropName('');
     setDiagnosis(null);
     setError('');
+    setSavedToCalendar(false);
   };
 
   const handleVoiceInput = () => {
@@ -145,6 +157,58 @@ export default function PestControl() {
     // Use translated strings for diagnosis summary
     const diagnosisText = `${t('pest.identifiedIssue', 'Identified Issue')}: ${diagnosis.pest}. ${t('pest.severity', 'Severity')}: ${diagnosis.severity}. ${t('pest.recommendedTreatment', 'Recommended Treatment')}: ${diagnosis.treatment}`;
     speak(diagnosisText);
+  };
+
+  const addDiagnosisToCalendar = async (diagnosisData: PestDiagnosis) => {
+    if (!user || savedToCalendar || isSavingToCalendar) return;
+
+    setIsSavingToCalendar(true);
+    try {
+      // Create title and description from diagnosis
+      const title = `Pest Diagnosis: ${diagnosisData.pest}`;
+      const titleSw = `Uchunguzi wa Wadudu: ${diagnosisData.pest}`;
+      const descriptionText = `Treatment: ${diagnosisData.treatment}\n\nPrevention:\n${diagnosisData.prevention.map(tip => `• ${tip}`).join('\n')}`;
+      const descriptionSw = `Matibabu: ${diagnosisData.treatment}\n\nKuzuia:\n${diagnosisData.prevention.map(tip => `• ${tip}`).join('\n')}`;
+
+      const { error: logError } = await supabase.rpc('log_calendar_activity', {
+        p_user_id: user.id,
+        p_activity_type: 'pest_diagnosis',
+        p_title: title,
+        p_title_sw: titleSw,
+        p_description: descriptionText,
+        p_description_sw: descriptionSw,
+        p_activity_date: new Date().toISOString().split('T')[0],
+        p_activity_time: new Date().toTimeString().split(' ')[0].slice(0, 5),
+        p_related_id: null,
+        p_related_type: 'pest_control',
+        p_field_id: null,
+        p_field_name: cropName || null,
+        p_icon: '🐛',
+        p_color: diagnosisData.severity.toLowerCase().includes('high') ? 'red' :
+                 diagnosisData.severity.toLowerCase().includes('medium') ? 'orange' : 'green',
+        p_metadata: {
+          pest: diagnosisData.pest,
+          severity: diagnosisData.severity,
+          treatment: diagnosisData.treatment,
+          prevention: diagnosisData.prevention,
+          crop: cropName || null,
+          had_images: images.length > 0,
+        },
+      });
+
+      if (logError) {
+        console.error('[PestControl] Error logging to calendar:', logError);
+        toast.error(t('pest.calendarError', 'Failed to save to calendar'));
+      } else {
+        setSavedToCalendar(true);
+        toast.success(t('pest.savedToCalendar', 'Diagnosis saved to calendar!'));
+      }
+    } catch (err) {
+      console.error('[PestControl] Error saving to calendar:', err);
+      toast.error(t('pest.calendarError', 'Failed to save to calendar'));
+    } finally {
+      setIsSavingToCalendar(false);
+    }
   };
 
   const getSeverityColor = (severity: string) => {
@@ -341,6 +405,23 @@ export default function PestControl() {
                   <Volume2 size={16} />
                   {t('chat.readAloud', 'Read Aloud')}
                 </button>
+                {!savedToCalendar && (
+                  <button
+                    onClick={() => addDiagnosisToCalendar(diagnosis)}
+                    disabled={isSavingToCalendar || !user}
+                    className="flex items-center gap-1 px-3 py-1.5 text-sm text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    title={t('pest.addToCalendar', 'Add to calendar')}
+                  >
+                    <Calendar size={16} />
+                    {isSavingToCalendar ? t('common.saving', 'Saving...') : t('pest.addToCalendar', 'Add to Calendar')}
+                  </button>
+                )}
+                {savedToCalendar && (
+                  <span className="flex items-center gap-1 px-3 py-1.5 text-sm text-green-600">
+                    <Check size={16} />
+                    {t('pest.savedToCalendar', 'Saved to Calendar')}
+                  </span>
+                )}
                 <button
                   onClick={handleReset}
                   className="text-sm text-gray-600 hover:text-gray-900 underline"

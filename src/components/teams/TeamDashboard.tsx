@@ -14,15 +14,17 @@ import {
   Camera,
   UserPlus,
   ChevronRight,
+  ChevronDown,
   MessageCircle,
   Send,
   Loader2,
   RefreshCw,
+  Plus,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useTeamChat } from '../../hooks/useTeamChat';
 import {
-  useUserTeam,
+  useUserTeams,
   useTeamChallenges,
   useTeamLeaderboard,
   useCreateTeam,
@@ -31,8 +33,9 @@ import {
   getTeamTypeIcon,
   getTeamTypeLabel,
   getChallengeTypeIcon,
+  type UserTeamDetails,
 } from '../../hooks/useTeams';
-import type { TeamType, TeamChallenge } from '../../types';
+import type { TeamType, TeamChallenge, TeamDetails } from '../../types';
 
 interface TeamDashboardProps {
   userId: string | undefined;
@@ -42,15 +45,27 @@ export default function TeamDashboard({ userId }: TeamDashboardProps) {
   const { t, i18n } = useTranslation();
   const isSwahili = i18n.language === 'sw';
 
-  const { data: userTeam, isLoading: teamLoading } = useUserTeam(userId);
-  const { data: challenges } = useTeamChallenges(userTeam?.id);
+  const { data: userTeams, isLoading: teamsLoading } = useUserTeams(userId);
   const { data: leaderboard } = useTeamLeaderboard(10);
 
+  const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
+  const [showTeamSelector, setShowTeamSelector] = useState(false);
   const [activeTab, setActiveTab] = useState<'team' | 'chat' | 'challenges' | 'leaderboard'>('team');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showJoinModal, setShowJoinModal] = useState(false);
 
-  if (teamLoading) {
+  // Get the selected team or first team
+  const selectedTeam = userTeams?.find(t => t.id === selectedTeamId) || userTeams?.[0] || null;
+  const { data: challenges } = useTeamChallenges(selectedTeam?.id);
+
+  // Set initial selected team when teams load
+  useEffect(() => {
+    if (userTeams && userTeams.length > 0 && !selectedTeamId) {
+      setSelectedTeamId(userTeams[0].id);
+    }
+  }, [userTeams, selectedTeamId]);
+
+  if (teamsLoading) {
     return (
       <div className="space-y-4">
         {[...Array(3)].map((_, i) => (
@@ -60,8 +75,8 @@ export default function TeamDashboard({ userId }: TeamDashboardProps) {
     );
   }
 
-  // No team - show join/create options
-  if (!userTeam) {
+  // No teams - show join/create options
+  if (!userTeams || userTeams.length === 0) {
     return (
       <div className="space-y-6">
         <NoTeamView
@@ -90,39 +105,130 @@ export default function TeamDashboard({ userId }: TeamDashboardProps) {
     );
   }
 
-  // Has team - show dashboard
+  // Has teams - show dashboard
   return (
     <div className="space-y-4 pb-6">
-      {/* Team Header */}
+      {/* Team Selector Header */}
       <motion.div
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         className="bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl p-6 text-white shadow-lg"
       >
-        <div className="flex items-start gap-4">
-          <div className="w-16 h-16 rounded-xl bg-white/20 flex items-center justify-center text-3xl">
-            {getTeamTypeIcon(userTeam.teamType)}
-          </div>
-          <div className="flex-1 min-w-0">
-            <h2 className="text-xl font-bold truncate">
-              {isSwahili && userTeam.nameSw ? userTeam.nameSw : userTeam.name}
-            </h2>
-            <p className="text-indigo-100 text-sm">
-              {getTeamTypeLabel(userTeam.teamType, isSwahili)}
-              {userTeam.location && ` • ${userTeam.location}`}
-            </p>
-            <div className="flex items-center gap-4 mt-2 text-sm">
-              <div className="flex items-center gap-1">
-                <Users className="w-4 h-4" />
-                <span>{userTeam.stats.totalMembers} {t('teams.members', 'members')}</span>
+        {/* Team Selector Dropdown */}
+        <div className="relative mb-4">
+          <button
+            onClick={() => setShowTeamSelector(!showTeamSelector)}
+            className="w-full flex items-center justify-between bg-white/10 hover:bg-white/20 rounded-xl px-4 py-3 transition-colors"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg bg-white/20 flex items-center justify-center text-xl">
+                {selectedTeam && getTeamTypeIcon(selectedTeam.teamType)}
               </div>
-              <div className="flex items-center gap-1">
-                <Trophy className="w-4 h-4" />
-                <span>{userTeam.stats.totalXp.toLocaleString()} XP</span>
+              <div className="text-left">
+                <p className="font-semibold">
+                  {selectedTeam && (isSwahili && selectedTeam.nameSw ? selectedTeam.nameSw : selectedTeam.name)}
+                </p>
+                <p className="text-xs text-indigo-200">
+                  {userTeams.length} {userTeams.length === 1 ? t('teams.team', 'team') : t('teams.teamsPlural', 'teams')} {t('teams.joined', 'joined')}
+                </p>
+              </div>
+            </div>
+            <ChevronDown className={`w-5 h-5 transition-transform ${showTeamSelector ? 'rotate-180' : ''}`} />
+          </button>
+
+          {/* Dropdown Menu */}
+          {showTeamSelector && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 overflow-hidden z-20"
+            >
+              <div className="max-h-64 overflow-y-auto">
+                {userTeams.map((team) => (
+                  <button
+                    key={team.id}
+                    onClick={() => {
+                      setSelectedTeamId(team.id);
+                      setShowTeamSelector(false);
+                    }}
+                    className={`w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors ${
+                      selectedTeamId === team.id ? 'bg-indigo-50 dark:bg-indigo-900/30' : ''
+                    }`}
+                  >
+                    <div className="w-10 h-10 rounded-lg bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center text-xl">
+                      {getTeamTypeIcon(team.teamType)}
+                    </div>
+                    <div className="flex-1 text-left">
+                      <p className="font-medium text-gray-900 dark:text-white">
+                        {isSwahili && team.nameSw ? team.nameSw : team.name}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {team.stats.totalMembers} {t('teams.members', 'members')} • {team.stats.totalXp.toLocaleString()} XP
+                      </p>
+                    </div>
+                    {team.userRole === 'leader' && (
+                      <Crown className="w-4 h-4 text-yellow-500" />
+                    )}
+                    {selectedTeamId === team.id && (
+                      <Check className="w-5 h-5 text-indigo-600" />
+                    )}
+                  </button>
+                ))}
+              </div>
+              {/* Join Another Team Button */}
+              <div className="border-t border-gray-200 dark:border-gray-700 p-2">
+                <button
+                  onClick={() => {
+                    setShowTeamSelector(false);
+                    setShowJoinModal(true);
+                  }}
+                  className="w-full flex items-center gap-2 px-4 py-2 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg transition-colors"
+                >
+                  <Plus className="w-4 h-4" />
+                  {t('teams.joinAnotherTeam', 'Join Another Team')}
+                </button>
+                <button
+                  onClick={() => {
+                    setShowTeamSelector(false);
+                    setShowCreateModal(true);
+                  }}
+                  className="w-full flex items-center gap-2 px-4 py-2 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg transition-colors"
+                >
+                  <UserPlus className="w-4 h-4" />
+                  {t('teams.createNewTeam', 'Create New Team')}
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </div>
+
+        {/* Selected Team Stats */}
+        {selectedTeam && (
+          <div className="flex items-start gap-4">
+            <div className="w-16 h-16 rounded-xl bg-white/20 flex items-center justify-center text-3xl">
+              {getTeamTypeIcon(selectedTeam.teamType)}
+            </div>
+            <div className="flex-1 min-w-0">
+              <h2 className="text-xl font-bold truncate">
+                {isSwahili && selectedTeam.nameSw ? selectedTeam.nameSw : selectedTeam.name}
+              </h2>
+              <p className="text-indigo-100 text-sm">
+                {getTeamTypeLabel(selectedTeam.teamType, isSwahili)}
+                {selectedTeam.location && ` • ${selectedTeam.location}`}
+              </p>
+              <div className="flex items-center gap-4 mt-2 text-sm">
+                <div className="flex items-center gap-1">
+                  <Users className="w-4 h-4" />
+                  <span>{selectedTeam.stats.totalMembers} {t('teams.members', 'members')}</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <Trophy className="w-4 h-4" />
+                  <span>{selectedTeam.stats.totalXp.toLocaleString()} XP</span>
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        )}
       </motion.div>
 
       {/* Tabs */}
@@ -151,33 +257,50 @@ export default function TeamDashboard({ userId }: TeamDashboardProps) {
       </div>
 
       {/* Tab Content */}
-      {activeTab === 'team' && (
+      {selectedTeam && activeTab === 'team' && (
         <TeamDetailsTab
-          team={userTeam}
+          team={selectedTeam}
           userId={userId!}
           isSwahili={isSwahili}
         />
       )}
 
-      {activeTab === 'chat' && (
+      {selectedTeam && activeTab === 'chat' && (
         <TeamChatTab
-          teamId={userTeam.id}
+          teamId={selectedTeam.id}
           isSwahili={isSwahili}
         />
       )}
 
-      {activeTab === 'challenges' && (
+      {selectedTeam && activeTab === 'challenges' && (
         <TeamChallengesTab
           challenges={challenges || []}
-          teamId={userTeam.id}
+          teamId={selectedTeam.id}
           isSwahili={isSwahili}
         />
       )}
 
-      {activeTab === 'leaderboard' && (
+      {selectedTeam && activeTab === 'leaderboard' && (
         <TeamLeaderboardTab
           leaderboard={leaderboard || []}
-          userTeamId={userTeam.id}
+          userTeamId={selectedTeam.id}
+          isSwahili={isSwahili}
+        />
+      )}
+
+      {/* Modals */}
+      {showCreateModal && (
+        <CreateTeamModal
+          userId={userId!}
+          onClose={() => setShowCreateModal(false)}
+          isSwahili={isSwahili}
+        />
+      )}
+
+      {showJoinModal && (
+        <JoinTeamModal
+          userId={userId!}
+          onClose={() => setShowJoinModal(false)}
           isSwahili={isSwahili}
         />
       )}
@@ -309,7 +432,7 @@ function NoTeamView({ onCreateTeam, onJoinTeam, leaderboard, isSwahili }: NoTeam
 // ============================================
 
 interface TeamDetailsTabProps {
-  team: NonNullable<ReturnType<typeof useUserTeam>['data']>;
+  team: UserTeamDetails | TeamDetails;
   userId: string;
   isSwahili: boolean;
 }
@@ -1058,7 +1181,7 @@ interface TeamWidgetProps {
 export function TeamWidget({ userId, onClick }: TeamWidgetProps) {
   const { t, i18n } = useTranslation();
   const isSwahili = i18n.language === 'sw';
-  const { data: userTeam, isLoading } = useUserTeam(userId);
+  const { data: userTeams, isLoading } = useUserTeams(userId);
 
   if (isLoading) {
     return (
@@ -1066,7 +1189,7 @@ export function TeamWidget({ userId, onClick }: TeamWidgetProps) {
     );
   }
 
-  if (!userTeam) {
+  if (!userTeams || userTeams.length === 0) {
     return (
       <motion.div
         initial={{ opacity: 0, y: 20 }}
@@ -1092,6 +1215,10 @@ export function TeamWidget({ userId, onClick }: TeamWidgetProps) {
     );
   }
 
+  // Show first team with count if multiple
+  const firstTeam = userTeams[0];
+  const teamCount = userTeams.length;
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -1101,15 +1228,23 @@ export function TeamWidget({ userId, onClick }: TeamWidgetProps) {
     >
       <div className="flex items-center justify-between text-white">
         <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center text-2xl">
-            {getTeamTypeIcon(userTeam.teamType)}
+          <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center text-2xl relative">
+            {getTeamTypeIcon(firstTeam.teamType)}
+            {teamCount > 1 && (
+              <span className="absolute -top-1 -right-1 w-5 h-5 bg-yellow-400 text-yellow-900 text-xs font-bold rounded-full flex items-center justify-center">
+                {teamCount}
+              </span>
+            )}
           </div>
           <div>
             <p className="font-semibold">
-              {isSwahili && userTeam.nameSw ? userTeam.nameSw : userTeam.name}
+              {isSwahili && firstTeam.nameSw ? firstTeam.nameSw : firstTeam.name}
             </p>
             <p className="text-sm text-indigo-100">
-              {userTeam.stats.totalMembers} {t('teams.members', 'members')} • {userTeam.stats.totalXp.toLocaleString()} XP
+              {teamCount > 1
+                ? `${teamCount} ${t('teams.teamsPlural', 'teams')} ${t('teams.joined', 'joined')}`
+                : `${firstTeam.stats.totalMembers} ${t('teams.members', 'members')} • ${firstTeam.stats.totalXp.toLocaleString()} XP`
+              }
             </p>
           </div>
         </div>

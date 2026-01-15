@@ -1,23 +1,29 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Send, Bot, User, Loader, Trash2, MessageCircle, Plus, Edit2, Check, X, Menu, Volume2, Mic } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { sendMessageToGemini, type ChatMessage, type FarmContext } from '../services/gemini';
 import { speak, listen } from '../utils/simpleVoice';
-import { supabase } from '../lib/supabase';
+import { useAuth } from '../contexts/AuthContext';
+import {
+  useChatConversations,
+  useCreateConversation,
+  useUpdateConversation,
+  useDeleteConversation,
+} from '../hooks/useChatConversations';
 import ConfirmDialog from './ConfirmDialog';
-
-interface Conversation {
-  id: string;
-  title: string;
-  messages: ChatMessage[];
-  createdAt: string;
-  updatedAt: string;
-}
 
 export default function FarmingChat() {
   const { t } = useTranslation();
-  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const { user } = useAuth();
+  const userId = user?.id;
+
+  // Supabase hooks for conversation management
+  const { data: conversations = [], isLoading: isLoadingConversations } = useChatConversations(userId);
+  const createConversationMutation = useCreateConversation();
+  const updateConversationMutation = useUpdateConversation();
+  const deleteConversationMutation = useDeleteConversation();
+
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputMessage, setInputMessage] = useState('');
@@ -26,63 +32,17 @@ export default function FarmingChat() {
   const [editTitleValue, setEditTitleValue] = useState('');
   const [showSidebar, setShowSidebar] = useState(true);
   const [isListening, setIsListening] = useState(false);
-  const [userId, setUserId] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ show: boolean; conversationId: string | null }>({ show: false, conversationId: null });
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Get current user ID on mount
+  // Load the most recent conversation when conversations are loaded
   useEffect(() => {
-    const getUserId = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        setUserId(user.id);
-      }
-    };
-    getUserId();
-  }, []);
-
-  // Load conversations from localStorage on mount (user-specific)
-  useEffect(() => {
-    if (!userId) return;
-
-    const storageKey = `farmingConversations_${userId}`;
-    const savedConversations = localStorage.getItem(storageKey);
-    if (savedConversations) {
-      try {
-        const parsed = JSON.parse(savedConversations);
-        setConversations(parsed);
-        // Load the most recent conversation
-        if (parsed.length > 0) {
-          const mostRecent = parsed[0];
-          setCurrentConversationId(mostRecent.id);
-          setMessages(mostRecent.messages);
-        }
-      } catch (error) {
-        console.error('Error loading conversations:', error);
-      }
+    if (conversations.length > 0 && !currentConversationId) {
+      const mostRecent = conversations[0];
+      setCurrentConversationId(mostRecent.id);
+      setMessages(mostRecent.messages || []);
     }
-  }, [userId]);
-
-  // Save conversations to localStorage whenever they change (user-specific)
-  useEffect(() => {
-    if (conversations.length > 0 && userId) {
-      const storageKey = `farmingConversations_${userId}`;
-      localStorage.setItem(storageKey, JSON.stringify(conversations));
-    }
-  }, [conversations, userId]);
-
-  // Auto-save current conversation
-  useEffect(() => {
-    if (currentConversationId && messages.length > 0) {
-      setConversations(prev =>
-        prev.map(conv =>
-          conv.id === currentConversationId
-            ? { ...conv, messages, updatedAt: new Date().toISOString() }
-            : conv
-        )
-      );
-    }
-  }, [messages, currentConversationId]);
+  }, [conversations, currentConversationId]);
 
   // Get location from settings for context
   const getLocation = () => {
@@ -107,14 +67,12 @@ export default function FarmingChat() {
       const weatherDataStr = localStorage.getItem('weatherData');
       if (weatherDataStr) {
         const weatherData = JSON.parse(weatherDataStr);
-        // Weather data structure from weather.ts:
-        // { current: { temp, condition, humidity, windSpeed, icon }, forecast: [...], sprayWindow: {...} }
         if (weatherData.current) {
           return {
             temperature: weatherData.current.temp,
             condition: weatherData.current.condition,
             humidity: weatherData.current.humidity,
-            rainfall: undefined // Not directly available in current structure
+            rainfall: undefined
           };
         }
       }
@@ -143,37 +101,47 @@ export default function FarmingChat() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const createNewConversation = () => {
-    const newConv: Conversation = {
-      id: Date.now().toString(),
-      title: t('chat.newConversation', 'New Conversation'),
-      messages: [],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
-    setConversations(prev => [newConv, ...prev]);
-    setCurrentConversationId(newConv.id);
-    setMessages([]);
+  const createNewConversation = async () => {
+    if (!userId) return;
+
+    try {
+      const newConv = await createConversationMutation.mutateAsync({
+        userId,
+        title: t('chat.newConversation', 'New Conversation'),
+        messages: [],
+      });
+      setCurrentConversationId(newConv.id);
+      setMessages([]);
+    } catch (error) {
+      console.error('Error creating conversation:', error);
+    }
   };
 
   const loadConversation = (id: string) => {
     const conv = conversations.find(c => c.id === id);
     if (conv) {
       setCurrentConversationId(id);
-      setMessages(conv.messages);
+      setMessages(conv.messages || []);
     }
   };
 
-  const deleteConversation = (id: string) => {
-    setConversations(prev => prev.filter(c => c.id !== id));
-    if (currentConversationId === id) {
-      const remaining = conversations.filter(c => c.id !== id);
-      if (remaining.length > 0) {
-        loadConversation(remaining[0].id);
-      } else {
-        setCurrentConversationId(null);
-        setMessages([]);
+  const handleDeleteConversation = async (id: string) => {
+    if (!userId) return;
+
+    try {
+      await deleteConversationMutation.mutateAsync({ conversationId: id, userId });
+
+      if (currentConversationId === id) {
+        const remaining = conversations.filter(c => c.id !== id);
+        if (remaining.length > 0) {
+          loadConversation(remaining[0].id);
+        } else {
+          setCurrentConversationId(null);
+          setMessages([]);
+        }
       }
+    } catch (error) {
+      console.error('Error deleting conversation:', error);
     }
   };
 
@@ -182,13 +150,20 @@ export default function FarmingChat() {
     setEditTitleValue(currentTitle);
   };
 
-  const saveTitle = (id: string) => {
-    if (editTitleValue.trim()) {
-      setConversations(prev =>
-        prev.map(conv =>
-          conv.id === id ? { ...conv, title: editTitleValue.trim() } : conv
-        )
-      );
+  const saveTitle = async (id: string) => {
+    if (!userId || !editTitleValue.trim()) {
+      setEditingTitle(null);
+      return;
+    }
+
+    try {
+      await updateConversationMutation.mutateAsync({
+        conversationId: id,
+        userId,
+        title: editTitleValue.trim(),
+      });
+    } catch (error) {
+      console.error('Error updating title:', error);
     }
     setEditingTitle(null);
   };
@@ -204,7 +179,6 @@ export default function FarmingChat() {
     setIsListening(true);
     const recognition = listen(
       (transcript) => {
-        // Append transcript to existing message
         setInputMessage(prev => prev ? `${prev} ${transcript}` : transcript);
         setIsListening(false);
       },
@@ -214,7 +188,6 @@ export default function FarmingChat() {
       }
     );
 
-    // Stop listening after 10 seconds as a safety measure
     if (recognition) {
       setTimeout(() => {
         if (isListening) {
@@ -225,58 +198,90 @@ export default function FarmingChat() {
     }
   };
 
-  const handleSendMessage = async () => {
-    if (!inputMessage.trim() || isLoading) return;
+  const saveConversation = useCallback(async (
+    conversationId: string,
+    newMessages: ChatMessage[],
+    title?: string
+  ) => {
+    if (!userId) return;
 
-    // Create new conversation if none exists
-    if (!currentConversationId) {
-      createNewConversation();
-      // Wait a bit for state to update
-      await new Promise(resolve => setTimeout(resolve, 100));
+    try {
+      await updateConversationMutation.mutateAsync({
+        conversationId,
+        userId,
+        messages: newMessages,
+        title,
+      });
+    } catch (error) {
+      console.error('Error saving conversation:', error);
     }
+  }, [userId, updateConversationMutation]);
+
+  const handleSendMessage = async () => {
+    if (!inputMessage.trim() || isLoading || !userId) return;
 
     const userMessage = inputMessage.trim();
     setInputMessage('');
+    setIsLoading(true);
+
+    // Create new conversation if none exists
+    let conversationId = currentConversationId;
+    if (!conversationId) {
+      try {
+        const autoTitle = userMessage.slice(0, 50) + (userMessage.length > 50 ? '...' : '');
+        const newConv = await createConversationMutation.mutateAsync({
+          userId,
+          title: autoTitle,
+          messages: [],
+        });
+        conversationId = newConv.id;
+        setCurrentConversationId(newConv.id);
+      } catch (error) {
+        console.error('Error creating conversation:', error);
+        setIsLoading(false);
+        return;
+      }
+    }
 
     // Add user message to chat
     const newMessages: ChatMessage[] = [...messages, { role: 'user', content: userMessage }];
     setMessages(newMessages);
-    setIsLoading(true);
 
-    // Auto-title conversation based on first message
-    if (newMessages.length === 1 && currentConversationId) {
-      const autoTitle = userMessage.slice(0, 50) + (userMessage.length > 50 ? '...' : '');
-      setConversations(prev =>
-        prev.map(conv =>
-          conv.id === currentConversationId && conv.title === t('chat.newConversation', 'New Conversation')
-            ? { ...conv, title: autoTitle }
-            : conv
-        )
-      );
-    }
+    // Auto-title conversation based on first message (if it's still the default title)
+    const currentConv = conversations.find(c => c.id === conversationId);
+    const shouldAutoTitle = newMessages.length === 1 &&
+      currentConv?.title === t('chat.newConversation', 'New Conversation');
+
+    const autoTitle = shouldAutoTitle
+      ? userMessage.slice(0, 50) + (userMessage.length > 50 ? '...' : '')
+      : undefined;
+
+    // Save user message immediately
+    await saveConversation(conversationId, newMessages, autoTitle);
 
     try {
       const context = getFarmContext();
-      console.log('Sending context to AI:', context); // Debug log
       const response = await sendMessageToGemini(userMessage, messages, context);
 
       // Add AI response to chat
-      setMessages([...newMessages, { role: 'assistant', content: response }]);
+      const finalMessages: ChatMessage[] = [...newMessages, { role: 'assistant', content: response }];
+      setMessages(finalMessages);
 
-      // Auto-read AI response if enabled
-      // const settings = voiceService.getSettings();
-      // if (settings.enabled && settings.autoRead) {
-      //   setTimeout(() => voiceService.speak(response), 500);
-      // }
+      // Save complete conversation with AI response
+      await saveConversation(conversationId, finalMessages);
     } catch (error) {
       console.error('Error sending message:', error);
-      setMessages([
+      const errorMessages: ChatMessage[] = [
         ...newMessages,
         {
           role: 'assistant',
           content: t('chat.error', "I'm having trouble processing your request right now. Please check your internet connection and try again.")
         }
-      ]);
+      ];
+      setMessages(errorMessages);
+
+      // Save error response too
+      await saveConversation(conversationId, errorMessages);
     } finally {
       setIsLoading(false);
     }
@@ -303,7 +308,7 @@ export default function FarmingChat() {
         variant="danger"
         onConfirm={() => {
           if (deleteConfirm.conversationId) {
-            deleteConversation(deleteConfirm.conversationId);
+            handleDeleteConversation(deleteConfirm.conversationId);
           }
           setDeleteConfirm({ show: false, conversationId: null });
         }}
@@ -322,15 +327,24 @@ export default function FarmingChat() {
             <div className="p-4 border-b border-gray-200">
               <button
                 onClick={createNewConversation}
-                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                disabled={createConversationMutation.isPending}
+                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50"
               >
-                <Plus size={20} />
+                {createConversationMutation.isPending ? (
+                  <Loader size={20} className="animate-spin" />
+                ) : (
+                  <Plus size={20} />
+                )}
                 {t('chat.newConversation', 'New Conversation')}
               </button>
             </div>
 
             <div className="flex-1 overflow-y-auto p-3 space-y-2">
-              {conversations.length === 0 ? (
+              {isLoadingConversations ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader className="animate-spin text-green-600" size={24} />
+                </div>
+              ) : conversations.length === 0 ? (
                 <div className="text-center py-8 text-gray-500 text-sm">
                   {t('chat.noConversations', 'No conversations yet')}
                 </div>
@@ -374,10 +388,10 @@ export default function FarmingChat() {
                             {conv.title}
                           </p>
                           <p className="text-xs text-gray-500">
-                            {new Date(conv.updatedAt).toLocaleDateString()}
+                            {new Date(conv.updated_at).toLocaleDateString()}
                           </p>
                           <p className="text-xs text-gray-400">
-                            {conv.messages.length} {t('chat.messages', 'messages')}
+                            {(conv.messages || []).length} {t('chat.messages', 'messages')}
                           </p>
                         </div>
                         <div className="flex gap-1">
@@ -546,11 +560,11 @@ export default function FarmingChat() {
                 placeholder={t('chat.inputPlaceholder', 'Ask about crops, soil, pests, weather, or farming techniques...')}
                 rows={2}
                 className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 resize-none"
-                disabled={isLoading || isListening}
+                disabled={isLoading || isListening || !userId}
               />
               <button
                 onClick={handleVoiceInput}
-                disabled={isLoading || isListening}
+                disabled={isLoading || isListening || !userId}
                 className={`px-4 py-3 rounded-lg transition-colors flex items-center gap-2 ${
                   isListening
                     ? 'bg-red-600 text-white animate-pulse'
@@ -563,7 +577,7 @@ export default function FarmingChat() {
               </button>
               <button
                 onClick={handleSendMessage}
-                disabled={!inputMessage.trim() || isLoading}
+                disabled={!inputMessage.trim() || isLoading || !userId}
                 className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
                 {isLoading ? (

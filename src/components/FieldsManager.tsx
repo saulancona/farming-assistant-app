@@ -4,7 +4,9 @@ import { Plus, Edit2, Trash2, Sprout, Calendar, MapPin, X, Check, ChevronRight, 
 import { format, parseISO, isValid } from 'date-fns';
 import { useTranslation } from 'react-i18next';
 import type { Field, InventoryItem } from '../types';
+import type { RecordHarvestInput } from '../hooks/useHarvests';
 import TalkingButton from './TalkingButton';
+import ConfirmDialog from './ConfirmDialog';
 
 interface FieldsManagerProps {
   fields: Field[];
@@ -12,6 +14,7 @@ interface FieldsManagerProps {
   onUpdateField: (id: string, field: Partial<Field>) => void;
   onDeleteField: (id: string) => void;
   onAddInventory?: (item: Omit<InventoryItem, 'id'>) => void;
+  onRecordHarvest?: (harvest: RecordHarvestInput) => Promise<void>;
   readOnly?: boolean;
   onRequestAuth?: () => void;
 }
@@ -81,6 +84,7 @@ export default function FieldsManager({
   onUpdateField,
   onDeleteField,
   onAddInventory,
+  onRecordHarvest,
   readOnly = false,
   onRequestAuth
 }: FieldsManagerProps) {
@@ -89,6 +93,7 @@ export default function FieldsManager({
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingField, setEditingField] = useState<Field | null>(null);
   const [harvestingField, setHarvestingField] = useState<Field | null>(null);
+  const [deletingField, setDeletingField] = useState<Field | null>(null);
   const [farmSizeUnit, setFarmSizeUnit] = useState<'acres' | 'hectares'>('acres');
   const [formData, setFormData] = useState<Omit<Field, 'id'>>({
     name: '',
@@ -216,7 +221,7 @@ export default function FieldsManager({
     }
   };
 
-  const handleHarvestSubmit = (e: React.FormEvent) => {
+  const handleHarvestSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!harvestingField) return;
 
@@ -238,10 +243,48 @@ export default function FieldsManager({
       onAddInventory(harvestItem);
     }
 
+    // Record harvest in the harvests tracking system
+    if (onRecordHarvest) {
+      try {
+        // Map quality grades to harvest quality grades
+        const qualityGradeMap: Record<string, string> = {
+          excellent: 'A',
+          good: 'B',
+          average: 'C',
+          poor: 'Rejected',
+        };
+
+        await onRecordHarvest({
+          userId: '', // Will be set by the parent component
+          cropType: harvestingField.cropType,
+          quantity: harvestData.quantity,
+          unit: harvestData.unit,
+          fieldId: harvestingField.id,
+          harvestDate: new Date().toISOString().split('T')[0],
+          areaPlanted: harvestingField.area,
+          qualityGrade: qualityGradeMap[harvestData.quality] || 'B',
+          notes: harvestData.notes || undefined,
+        });
+      } catch (error) {
+        console.error('Error recording harvest:', error);
+      }
+    }
+
     setHarvestingField(null);
   };
 
   const getStatusIndex = (status: Field['status']) => FIELD_STATUSES.indexOf(status);
+
+  const handleDeleteClick = (field: Field) => {
+    setDeletingField(field);
+  };
+
+  const handleConfirmDelete = () => {
+    if (deletingField) {
+      onDeleteField(deletingField.id);
+      setDeletingField(null);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -296,7 +339,7 @@ export default function FieldsManager({
                         <Edit2 size={16} className="text-gray-600" />
                       </button>
                       <button
-                        onClick={() => onDeleteField(field.id)}
+                        onClick={() => handleDeleteClick(field)}
                         className="p-2 hover:bg-red-100 rounded-lg transition-colors"
                         title={t('common.delete', 'Delete')}
                       >
@@ -665,10 +708,14 @@ export default function FieldsManager({
                     />
                   </div>
 
-                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 space-y-1">
                     <p className="text-sm text-amber-800">
                       <Check size={14} className="inline mr-1" />
                       {t('fields.harvestInventoryNote', 'This harvest will be automatically added to your inventory.')}
+                    </p>
+                    <p className="text-sm text-amber-800">
+                      <Check size={14} className="inline mr-1" />
+                      {t('fields.harvestTrackerNote', 'This harvest will be recorded in your Harvest Tracker for analytics.')}
                     </p>
                   </div>
 
@@ -694,6 +741,21 @@ export default function FieldsManager({
           </div>
         )}
       </AnimatePresence>
+
+      {/* Delete Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={!!deletingField}
+        title={t('fields.deleteFieldTitle', 'Delete Field')}
+        message={deletingField
+          ? t('fields.deleteFieldMessage', `Are you sure you want to delete "${deletingField.name}"? This action cannot be undone and all data for this field will be permanently lost.`)
+          : ''
+        }
+        confirmLabel={t('fields.deleteConfirm', 'Yes, Delete')}
+        cancelLabel={t('common.cancel', 'Cancel')}
+        variant="danger"
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setDeletingField(null)}
+      />
     </div>
   );
 }

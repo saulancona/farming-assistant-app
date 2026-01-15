@@ -9,6 +9,7 @@ import {
   navigationCategories,
   getNavigationItemsByCategory,
   voiceLabelKeys,
+  standaloneBottomItems,
   type NavigationCategory,
 } from '../../config/navigation';
 
@@ -132,6 +133,31 @@ export default function Sidebar({ onRequestAuth }: SidebarProps) {
             </div>
           );
         })}
+
+        {/* Standalone Bottom Items (Weather, Settings) */}
+        <div className="mt-4 pt-4 border-t border-gray-100">
+          {standaloneBottomItems.map((item) => {
+            const ItemIcon = item.icon;
+            const isActive = activeTab === item.id;
+            const label = t(item.labelKey, item.labelDefault);
+
+            return (
+              <TalkingButton
+                key={item.id}
+                voiceLabel={getNavVoiceLabel(item.id, label)}
+                onClick={() => setActiveTab(item.id)}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors min-h-[44px] mb-1 ${
+                  isActive
+                    ? 'bg-primary-100 text-primary-700 font-medium'
+                    : 'text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                <ItemIcon size={18} />
+                <span className="text-sm">{label}</span>
+              </TalkingButton>
+            );
+          })}
+        </div>
       </nav>
 
       {/* User Section */}

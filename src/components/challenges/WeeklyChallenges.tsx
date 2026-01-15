@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Zap,
@@ -349,30 +349,75 @@ function PhotoUploadModal({
 }) {
   const { t } = useTranslation();
   const [selectedType, setSelectedType] = useState<PhotoType>('crop');
-  const [photoUrl, setPhotoUrl] = useState('');
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const photoTypes: PhotoType[] = ['pest', 'crop', 'soil', 'harvest', 'field', 'other'];
 
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (!file.type.startsWith('image/')) {
+        return;
+      }
+      setSelectedFile(file);
+      // Create preview
+      const url = URL.createObjectURL(file);
+      setPreview(url);
+    }
+  };
+
+  const removePhoto = () => {
+    if (preview) {
+      URL.revokeObjectURL(preview);
+    }
+    setSelectedFile(null);
+    setPreview(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
   const handleSubmit = async () => {
-    if (!userId || !photoUrl) return;
+    if (!userId || !selectedFile) return;
 
     setUploading(true);
     try {
+      // Convert file to base64 data URL for storage
+      const reader = new FileReader();
+      const photoUrl = await new Promise<string>((resolve, reject) => {
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(selectedFile);
+      });
+
       await onSubmit.mutateAsync({
         userId,
         photoUrl,
         photoType: selectedType,
         challengeId: challenge?.id,
       });
+
+      // Cleanup and close
+      removePhoto();
       onClose();
-      setPhotoUrl('');
     } catch (error) {
       console.error('Failed to submit photo:', error);
     } finally {
       setUploading(false);
     }
   };
+
+  // Cleanup preview URL on unmount
+  useEffect(() => {
+    return () => {
+      if (preview) {
+        URL.revokeObjectURL(preview);
+      }
+    };
+  }, [preview]);
 
   if (!isOpen) return null;
 
@@ -429,38 +474,66 @@ function PhotoUploadModal({
             </div>
           </div>
 
-          {/* Photo URL Input (placeholder for actual file upload) */}
+          {/* Photo Upload */}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              {t('challenges.photoUrl', 'Photo URL or Upload')}
+              {isSwahili ? 'Pakia Picha' : 'Upload Photo'}
             </label>
-            <div className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-6 text-center">
-              <Upload className="w-10 h-10 mx-auto text-gray-400 mb-2" />
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                {t('challenges.dragDrop', 'Drag and drop or click to upload')}
-              </p>
-              <input
-                type="text"
-                placeholder="Or paste image URL..."
-                value={photoUrl}
-                onChange={(e) => setPhotoUrl(e.target.value)}
-                className="mt-3 w-full p-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
-              />
-            </div>
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              onChange={handleFileSelect}
+              className="hidden"
+            />
+
+            {preview ? (
+              <div className="relative">
+                <img
+                  src={preview}
+                  alt="Preview"
+                  className="w-full h-48 object-cover rounded-xl border-2 border-amber-500"
+                />
+                <button
+                  onClick={removePhoto}
+                  className="absolute top-2 right-2 w-8 h-8 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+                <div className="absolute bottom-2 left-2 bg-black/60 text-white text-xs px-2 py-1 rounded">
+                  {selectedFile?.name}
+                </div>
+              </div>
+            ) : (
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="w-full border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-8 text-center hover:border-amber-500 hover:bg-amber-50 dark:hover:bg-amber-900/10 transition-colors"
+              >
+                <Camera className="w-12 h-12 mx-auto text-gray-400 mb-3" />
+                <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {isSwahili ? 'Bofya kupiga picha' : 'Tap to take photo'}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  {isSwahili ? 'au chagua kutoka galari' : 'or choose from gallery'}
+                </p>
+              </button>
+            )}
           </div>
 
           {/* Submit Button */}
           <button
             onClick={handleSubmit}
-            disabled={!photoUrl || uploading}
-            className="w-full py-3 bg-amber-500 text-white rounded-xl font-medium hover:bg-amber-600 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+            disabled={!selectedFile || uploading}
+            className="w-full py-3 bg-amber-500 text-white rounded-xl font-medium hover:bg-amber-600 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {uploading ? (
               <Loader2 className="w-5 h-5 animate-spin" />
             ) : (
-              <Camera className="w-5 h-5" />
+              <Upload className="w-5 h-5" />
             )}
-            {t('challenges.submit', 'Submit Photo')}
+            {isSwahili ? 'Wasilisha Picha' : t('challenges.submit', 'Submit Photo')}
           </button>
         </div>
       </motion.div>

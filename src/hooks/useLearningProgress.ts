@@ -370,23 +370,37 @@ export function useMarkArticleComplete() {
 
   return useMutation({
     mutationFn: async ({ userId, articleId }: { userId: string; articleId: string }) => {
-      // Try using the new RPC function first (handles everything server-side)
-      const { data: rpcResult, error: rpcError } = await supabase.rpc('mark_article_complete', {
-        p_user_id: userId,
-        p_article_id: articleId,
-      });
+      console.log('Starting article completion for:', { userId, articleId });
 
-      // If RPC succeeded, return the result
-      if (!rpcError && rpcResult?.success) {
-        return toCamelCase(rpcResult.article_progress) as ArticleProgress;
+      // Try using the new RPC function first (handles everything server-side)
+      try {
+        const { data: rpcResult, error: rpcError } = await supabase.rpc('mark_article_complete', {
+          p_user_id: userId,
+          p_article_id: articleId,
+        });
+
+        console.log('RPC result:', rpcResult, 'error:', rpcError);
+
+        // If RPC succeeded, return the result
+        if (!rpcError && rpcResult?.success) {
+          console.log('RPC succeeded, returning result');
+          return toCamelCase(rpcResult.article_progress) as ArticleProgress;
+        }
+
+        // Log the RPC error for debugging
+        if (rpcError) {
+          console.warn('RPC mark_article_complete error:', rpcError.message, rpcError.code, rpcError.details);
+        }
+      } catch (rpcException) {
+        console.warn('RPC mark_article_complete exception:', rpcException);
       }
 
       // Fallback: If RPC doesn't exist or failed, do it directly
-      console.warn('RPC mark_article_complete failed or not available, using fallback:', rpcError);
+      console.log('Using fallback method for article completion');
 
       const now = new Date().toISOString();
 
-      // Use upsert for simplicity
+      // Use upsert for simplicity - include created_at for new rows
       const { data, error } = await supabase
         .from('article_progress')
         .upsert(
@@ -398,17 +412,20 @@ export function useMarkArticleComplete() {
             completed: true,
             completed_at: now,
             last_read_at: now,
+            created_at: now,
             updated_at: now,
           },
-          { onConflict: 'user_id,article_id' }
+          { onConflict: 'user_id,article_id', ignoreDuplicates: false }
         )
         .select()
         .single();
 
       if (error) {
-        console.error('Error saving article progress:', error);
-        throw error;
+        console.error('Error saving article progress:', error.message, error.code, error.details, error.hint);
+        throw new Error(`Failed to save article progress: ${error.message}`);
       }
+
+      console.log('Fallback upsert succeeded:', data);
 
       // Try to award XP (don't fail if this fails)
       try {

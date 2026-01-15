@@ -15,9 +15,12 @@ import {
   Camera,
   Image,
   X,
+  AlertTriangle,
+  RefreshCw,
 } from 'lucide-react';
-import { supabase } from '../../lib/supabase';
 import { useTranslation } from 'react-i18next';
+import { uploadMissionPhoto, fileToDataUrl } from '../../services/storage';
+import { verifyPhoto, type PhotoVerificationResult } from '../../services/photoVerification';
 import {
   useAvailableMissions,
   useUserMissions,
@@ -465,6 +468,7 @@ export default function MissionHub({ userId, userFields = [] }: MissionHubProps)
         {viewingMission && (
           <MissionProgressModal
             mission={viewingMission}
+            userId={userId}
             isSwahili={isSwahili}
             onClose={() => setViewingMission(null)}
           />
@@ -477,10 +481,12 @@ export default function MissionHub({ userId, userFields = [] }: MissionHubProps)
 // Mission Progress Modal Component
 function MissionProgressModal({
   mission,
+  userId,
   isSwahili,
   onClose,
 }: {
   mission: UserMission;
+  userId: string | undefined;
   isSwahili: boolean;
   onClose: () => void;
 }) {
@@ -490,13 +496,15 @@ function MissionProgressModal({
   const [completingStep, setCompletingStep] = useState<number | null>(null);
   const [stepError, setStepError] = useState<string | null>(null);
   const [uploadingPhoto, setUploadingPhoto] = useState<number | null>(null);
-  const [stepPhotos, setStepPhotos] = useState<Record<number, { file: File; preview: string; url?: string }>>({});
+  const [verifyingPhoto, setVerifyingPhoto] = useState<number | null>(null);
+  const [stepPhotos, setStepPhotos] = useState<Record<number, { file: File; preview: string; url?: string; verificationResult?: PhotoVerificationResult }>>({});
 
   const daysRemaining = calculateDaysRemaining(mission.targetDate);
   const isOverdue = daysRemaining < 0;
 
-  const handlePhotoUpload = async (stepIndex: number, file: File) => {
+  const handlePhotoUpload = async (stepIndex: number, file: File, stepName?: string) => {
     setUploadingPhoto(stepIndex);
+    setVerifyingPhoto(stepIndex);
     setStepError(null);
 
     try {
@@ -504,25 +512,47 @@ function MissionProgressModal({
       const preview = URL.createObjectURL(file);
       setStepPhotos((prev) => ({ ...prev, [stepIndex]: { file, preview } }));
 
-      // Upload to Supabase Storage
-      const fileExt = file.name.split('.').pop();
-      const fileName = `mission_${mission.id}_step_${stepIndex}_${Date.now()}.${fileExt}`;
-      const filePath = `mission-evidence/${fileName}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from('photos')
-        .upload(filePath, file, { cacheControl: '3600', upsert: false });
-
-      if (uploadError) {
-        throw uploadError;
+      // Verify the photo first
+      let verificationResult: PhotoVerificationResult;
+      try {
+        verificationResult = await verifyPhoto(file, 'mission_step', {
+          stepName,
+        });
+      } catch {
+        // On verification error, accept the photo (graceful degradation)
+        verificationResult = {
+          isValid: true,
+          confidence: 0,
+          detectedContent: 'Verification unavailable',
+          reason: 'Photo verification unavailable. Photo accepted.',
+        };
       }
 
-      // Get public URL
-      const { data: urlData } = supabase.storage.from('photos').getPublicUrl(filePath);
+      setVerifyingPhoto(null);
+
+      if (!verificationResult.isValid) {
+        // Photo rejected - show error and don't upload
+        setStepPhotos((prev) => ({
+          ...prev,
+          [stepIndex]: { ...prev[stepIndex], verificationResult },
+        }));
+        setUploadingPhoto(null);
+        return;
+      }
+
+      // Photo verified, now upload
+      let photoUrl: string;
+      try {
+        photoUrl = await uploadMissionPhoto(userId || 'anonymous', mission.id, file);
+      } catch {
+        // Fallback to base64 if storage upload fails
+        console.warn('Storage upload failed, using base64 fallback');
+        photoUrl = await fileToDataUrl(file);
+      }
 
       setStepPhotos((prev) => ({
         ...prev,
-        [stepIndex]: { ...prev[stepIndex], url: urlData.publicUrl },
+        [stepIndex]: { ...prev[stepIndex], url: photoUrl, verificationResult },
       }));
     } catch (err: unknown) {
       let errorMessage = 'Failed to upload photo';
@@ -538,6 +568,7 @@ function MissionProgressModal({
       });
     } finally {
       setUploadingPhoto(null);
+      setVerifyingPhoto(null);
     }
   };
 
@@ -563,19 +594,30 @@ function MissionProgressModal({
     setCompletingStep(stepIndex);
     setStepError(null);
     try {
+      console.log('Completing step:', stepIndex, 'with photo:', photo.url?.substring(0, 50));
       const result = await completeMissionStep.mutateAsync({
         userMissionId: mission.id,
         stepIndex,
         evidencePhotoUrl: photo.url,
       });
 
+      console.log('Complete step result:', result);
+
       if (result && !result.success) {
         setStepError(result.error || 'Failed to complete step');
       } else {
         // Clear the photo from state after successful completion
         removePhoto(stepIndex);
+
+        // If mission is complete, show success and close modal
+        if (result?.missionCompleted) {
+          setTimeout(() => {
+            onClose();
+          }, 1500);
+        }
       }
     } catch (err: unknown) {
+      console.error('Complete step error:', err);
       let errorMessage = 'Failed to complete step';
       if (err && typeof err === 'object' && 'message' in err) {
         errorMessage = String(err.message);
@@ -671,10 +713,12 @@ function MissionProgressModal({
                 key={step.id}
                 step={step}
                 stepNumber={index + 1}
+                isSwahili={isSwahili}
                 isCompleting={completingStep === step.stepIndex}
                 isUploadingPhoto={uploadingPhoto === step.stepIndex}
+                isVerifyingPhoto={verifyingPhoto === step.stepIndex}
                 uploadedPhoto={stepPhotos[step.stepIndex]}
-                onPhotoUpload={(file) => handlePhotoUpload(step.stepIndex, file)}
+                onPhotoUpload={(file) => handlePhotoUpload(step.stepIndex, file, step.stepName)}
                 onRemovePhoto={() => removePhoto(step.stepIndex)}
                 onComplete={() => handleCompleteStep(step.stepIndex)}
               />
@@ -732,8 +776,10 @@ function MissionProgressModal({
 function MissionStepCard({
   step,
   stepNumber,
+  isSwahili,
   isCompleting,
   isUploadingPhoto,
+  isVerifyingPhoto,
   uploadedPhoto,
   onPhotoUpload,
   onRemovePhoto,
@@ -741,9 +787,11 @@ function MissionStepCard({
 }: {
   step: MissionStepProgress;
   stepNumber: number;
+  isSwahili: boolean;
   isCompleting: boolean;
   isUploadingPhoto: boolean;
-  uploadedPhoto?: { file: File; preview: string; url?: string };
+  isVerifyingPhoto: boolean;
+  uploadedPhoto?: { file: File; preview: string; url?: string; verificationResult?: PhotoVerificationResult };
   onPhotoUpload: (file: File) => void;
   onRemovePhoto: () => void;
   onComplete: () => void;
@@ -752,6 +800,7 @@ function MissionStepCard({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isCompleted = step.status === 'completed';
   const isInProgress = step.status === 'in_progress';
+  const photoRejected = uploadedPhoto?.verificationResult && !uploadedPhoto.verificationResult.isValid;
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -772,7 +821,7 @@ function MissionStepCard({
     }
   };
 
-  const hasPhotoUploaded = uploadedPhoto?.url;
+  const hasPhotoUploaded = uploadedPhoto?.url && !photoRejected;
 
   return (
     <motion.div
@@ -877,55 +926,120 @@ function MissionStepCard({
               />
 
               {uploadedPhoto ? (
-                <div className="flex items-center gap-3">
-                  <div className="relative">
-                    <img
-                      src={uploadedPhoto.preview}
-                      alt="Evidence preview"
-                      className="w-20 h-20 rounded-lg object-cover border-2 border-blue-300 dark:border-blue-600"
-                    />
-                    {isUploadingPhoto && (
-                      <div className="absolute inset-0 bg-black/50 rounded-lg flex items-center justify-center">
-                        <Loader2 className="w-6 h-6 text-white animate-spin" />
-                      </div>
-                    )}
-                    {uploadedPhoto.url && (
-                      <div className="absolute -top-1 -right-1 w-5 h-5 bg-emerald-500 rounded-full flex items-center justify-center">
-                        <Check className="w-3 h-3 text-white" />
-                      </div>
-                    )}
-                    <button
-                      onClick={onRemovePhoto}
-                      className="absolute -top-1 -left-1 w-5 h-5 bg-red-500 rounded-full flex items-center justify-center hover:bg-red-600"
-                    >
-                      <X className="w-3 h-3 text-white" />
-                    </button>
+                <div className="space-y-2">
+                  <div className="flex items-center gap-3">
+                    <div className="relative">
+                      <img
+                        src={uploadedPhoto.preview}
+                        alt="Evidence preview"
+                        className={`w-20 h-20 rounded-lg object-cover border-2 ${
+                          photoRejected
+                            ? 'border-red-400 dark:border-red-600'
+                            : 'border-blue-300 dark:border-blue-600'
+                        }`}
+                      />
+                      {(isUploadingPhoto || isVerifyingPhoto) && (
+                        <div className="absolute inset-0 bg-black/50 rounded-lg flex items-center justify-center">
+                          <Loader2 className="w-6 h-6 text-white animate-spin" />
+                        </div>
+                      )}
+                      {uploadedPhoto.url && !photoRejected && (
+                        <div className="absolute -top-1 -right-1 w-5 h-5 bg-emerald-500 rounded-full flex items-center justify-center">
+                          <Check className="w-3 h-3 text-white" />
+                        </div>
+                      )}
+                      {photoRejected && (
+                        <div className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 rounded-full flex items-center justify-center">
+                          <AlertTriangle className="w-3 h-3 text-white" />
+                        </div>
+                      )}
+                      <button
+                        onClick={onRemovePhoto}
+                        className="absolute -top-1 -left-1 w-5 h-5 bg-red-500 rounded-full flex items-center justify-center hover:bg-red-600"
+                      >
+                        <X className="w-3 h-3 text-white" />
+                      </button>
+                    </div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400">
+                      {isVerifyingPhoto ? (
+                        <span className="text-blue-600 dark:text-blue-400 flex items-center gap-1">
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                          {isSwahili ? 'Inakagua picha...' : 'Verifying photo...'}
+                        </span>
+                      ) : photoRejected ? (
+                        <span className="text-red-600 dark:text-red-400 flex items-center gap-1">
+                          <AlertTriangle className="w-3 h-3" />
+                          {isSwahili ? 'Picha imekataliwa' : 'Photo rejected'}
+                        </span>
+                      ) : uploadedPhoto.url ? (
+                        <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3" />
+                          {t('missions.photoReady', 'Photo ready')}
+                        </span>
+                      ) : isUploadingPhoto ? (
+                        <span>{t('missions.uploading', 'Uploading...')}</span>
+                      ) : (
+                        <span>{t('missions.uploadFailed', 'Upload failed')}</span>
+                      )}
+                    </div>
                   </div>
-                  <div className="text-xs text-gray-500 dark:text-gray-400">
-                    {uploadedPhoto.url ? (
-                      <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-                        <CheckCircle2 className="w-3 h-3" />
-                        {t('missions.photoReady', 'Photo ready')}
-                      </span>
-                    ) : isUploadingPhoto ? (
-                      <span>{t('missions.uploading', 'Uploading...')}</span>
-                    ) : (
-                      <span>{t('missions.uploadFailed', 'Upload failed')}</span>
-                    )}
-                  </div>
+
+                  {/* Photo Rejection Details */}
+                  {photoRejected && uploadedPhoto.verificationResult && (
+                    <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3">
+                      <p className="text-xs text-red-600 dark:text-red-400">
+                        {isSwahili
+                          ? uploadedPhoto.verificationResult.reasonSw || uploadedPhoto.verificationResult.reason
+                          : uploadedPhoto.verificationResult.reason}
+                      </p>
+                      {uploadedPhoto.verificationResult.suggestions && uploadedPhoto.verificationResult.suggestions.length > 0 && (
+                        <ul className="mt-2 space-y-1">
+                          {(isSwahili
+                            ? uploadedPhoto.verificationResult.suggestionsSw || uploadedPhoto.verificationResult.suggestions
+                            : uploadedPhoto.verificationResult.suggestions
+                          ).map((suggestion, idx) => (
+                            <li key={idx} className="text-xs text-red-500 dark:text-red-400 flex items-start gap-1">
+                              <span>•</span>
+                              <span>{suggestion}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      <button
+                        onClick={() => {
+                          onRemovePhoto();
+                          setTimeout(() => fileInputRef.current?.click(), 100);
+                        }}
+                        className="mt-2 flex items-center gap-1 px-2 py-1 bg-amber-500 hover:bg-amber-600 text-white text-xs rounded transition"
+                      >
+                        <RefreshCw className="w-3 h-3" />
+                        {isSwahili ? 'Jaribu Tena' : 'Try Again'}
+                      </button>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <button
                   onClick={() => fileInputRef.current?.click()}
-                  disabled={isUploadingPhoto}
+                  disabled={isUploadingPhoto || isVerifyingPhoto}
                   className="flex items-center gap-2 px-3 py-2 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-lg text-sm font-medium hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors disabled:opacity-50"
                 >
-                  {isUploadingPhoto ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
+                  {isVerifyingPhoto ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      {isSwahili ? 'Inakagua...' : 'Verifying...'}
+                    </>
+                  ) : isUploadingPhoto ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      {t('missions.uploading', 'Uploading...')}
+                    </>
                   ) : (
-                    <Camera className="w-4 h-4" />
+                    <>
+                      <Camera className="w-4 h-4" />
+                      {t('missions.uploadPhoto', 'Upload Photo Evidence')}
+                    </>
                   )}
-                  {t('missions.uploadPhoto', 'Upload Photo Evidence')}
                 </button>
               )}
 
@@ -940,7 +1054,10 @@ function MissionStepCard({
         {/* Complete Button - Only show when photo is uploaded */}
         {isInProgress && hasPhotoUploaded && (
           <button
-            onClick={onComplete}
+            onClick={() => {
+              console.log('Complete button clicked for step:', step.stepIndex);
+              onComplete();
+            }}
             disabled={isCompleting || !hasPhotoUploaded}
             className="px-3 py-2 bg-emerald-500 text-white rounded-lg text-sm font-medium hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 self-end"
           >

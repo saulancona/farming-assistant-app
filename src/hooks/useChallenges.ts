@@ -48,29 +48,84 @@ export function useActiveChallenges() {
   });
 }
 
-// Get user's challenge progress
+// Helper to get current ISO week-year (matches database function)
+function getCurrentWeekYear(): string {
+  const now = new Date();
+  // Get ISO week number
+  const target = new Date(now.valueOf());
+  const dayNr = (now.getDay() + 6) % 7;
+  target.setDate(target.getDate() - dayNr + 3);
+  const firstThursday = target.valueOf();
+  target.setMonth(0, 1);
+  if (target.getDay() !== 4) {
+    target.setMonth(0, 1 + ((4 - target.getDay() + 7) % 7));
+  }
+  const weekNum = 1 + Math.ceil((firstThursday - target.valueOf()) / 604800000);
+
+  // Get ISO year (may differ from calendar year at year boundaries)
+  const jan4 = new Date(now.getFullYear(), 0, 4);
+  const startOfWeek = new Date(now);
+  startOfWeek.setDate(now.getDate() - dayNr);
+  const isoYear = startOfWeek > jan4 || now.getMonth() === 0 ? now.getFullYear() : now.getFullYear() - 1;
+
+  return `${isoYear}${weekNum.toString().padStart(2, '0')}`;
+}
+
+// Get user's challenge progress for CURRENT WEEK only
 export function useUserChallengeProgress(userId: string | undefined) {
   return useQuery({
-    queryKey: ['userChallengeProgress', userId],
+    queryKey: ['userChallengeProgress', userId, getCurrentWeekYear()],
     queryFn: async () => {
       if (!userId) return [];
 
-      console.log('[useChallenges] Fetching user challenge progress for:', userId);
+      const currentWeekYear = getCurrentWeekYear();
+      console.log('[useChallenges] Fetching user challenge progress for:', userId, 'week:', currentWeekYear);
 
+      // Try using the RPC function first, fallback to view with filter
       const { data, error } = await supabase
         .from('user_challenges_with_details')
         .select('*')
         .eq('user_id', userId)
+        .eq('week_year', currentWeekYear)
         .order('started_at', { ascending: false });
 
       if (error) {
         console.error('[useChallenges] Error fetching progress:', error);
-        throw error;
+        // Fallback: if week_year column doesn't exist yet, fetch all
+        const { data: fallbackData, error: fallbackError } = await supabase
+          .from('user_challenges_with_details')
+          .select('*')
+          .eq('user_id', userId)
+          .order('started_at', { ascending: false });
+
+        if (fallbackError) throw fallbackError;
+
+        return (fallbackData || []).map((p: Record<string, unknown>) => ({
+          id: p.id,
+          userId: p.user_id,
+          challengeId: p.challenge_id,
+          currentProgress: p.current_progress,
+          targetProgress: p.target_progress,
+          status: p.status,
+          startedAt: p.started_at,
+          completedAt: p.completed_at,
+          xpAwarded: p.xp_awarded,
+          pointsAwarded: p.points_awarded,
+          weekYear: p.week_year,
+          challengeName: p.challenge_name,
+          challengeNameSw: p.challenge_name_sw,
+          challengeDescription: p.challenge_description,
+          challengeType: p.challenge_type,
+          challengeXpReward: p.challenge_xp_reward,
+          challengePointsReward: p.challenge_points_reward,
+          startDate: p.start_date,
+          endDate: p.end_date,
+        })) as UserChallengeProgress[];
       }
 
       console.log('[useChallenges] User challenge progress raw data:', data);
 
-      return data.map((p: Record<string, unknown>) => ({
+      return (data || []).map((p: Record<string, unknown>) => ({
         id: p.id,
         userId: p.user_id,
         challengeId: p.challenge_id,
@@ -81,6 +136,7 @@ export function useUserChallengeProgress(userId: string | undefined) {
         completedAt: p.completed_at,
         xpAwarded: p.xp_awarded,
         pointsAwarded: p.points_awarded,
+        weekYear: p.week_year,
         challengeName: p.challenge_name,
         challengeNameSw: p.challenge_name_sw,
         challengeDescription: p.challenge_description,
@@ -284,7 +340,7 @@ export function usePhotoSubmissions(userId: string | undefined, limit: number = 
   });
 }
 
-// Get challenge history (completed challenges)
+// Get challenge history (ALL completed challenges across all weeks)
 export function useChallengeHistory(userId: string | undefined) {
   return useQuery({
     queryKey: ['challengeHistory', userId],
@@ -296,11 +352,12 @@ export function useChallengeHistory(userId: string | undefined) {
         .select('*')
         .eq('user_id', userId)
         .eq('status', 'completed')
-        .order('completed_at', { ascending: false });
+        .order('completed_at', { ascending: false })
+        .limit(50); // Limit to last 50 completed challenges
 
       if (error) throw error;
 
-      return data.map((p: Record<string, unknown>) => ({
+      return (data || []).map((p: Record<string, unknown>) => ({
         id: p.id,
         userId: p.user_id,
         challengeId: p.challenge_id,
@@ -311,6 +368,7 @@ export function useChallengeHistory(userId: string | undefined) {
         completedAt: p.completed_at,
         xpAwarded: p.xp_awarded,
         pointsAwarded: p.points_awarded,
+        weekYear: p.week_year,
         challengeName: p.challenge_name,
         challengeNameSw: p.challenge_name_sw,
         challengeDescription: p.challenge_description,

@@ -173,10 +173,17 @@ export function useAwardRaffleEntry() {
  * Get the display name for a raffle entry source
  */
 export function getRaffleSourceDisplay(source: string, isSwahili: boolean = false): { icon: string; label: string } {
+  // Handle dynamic streak sources (streak_5, streak_10, streak_15, etc.)
+  const streakMatch = source.match(/^streak_(\d+)$/);
+  if (streakMatch) {
+    const days = parseInt(streakMatch[1], 10);
+    return {
+      icon: '🔥',
+      label: isSwahili ? `Mfululizo wa Siku ${days}` : `${days}-Day Streak`,
+    };
+  }
+
   const sources: Record<string, { icon: string; en: string; sw: string }> = {
-    streak_30: { icon: '🔥', en: '30-Day Streak', sw: 'Mfululizo wa Siku 30' },
-    streak_60: { icon: '🔥🔥', en: '60-Day Streak', sw: 'Mfululizo wa Siku 60' },
-    streak_90: { icon: '🔥🔥🔥', en: '90-Day Streak', sw: 'Mfululizo wa Siku 90' },
     mission_complete: { icon: '🎯', en: 'Mission Complete', sw: 'Misheni Imekamilika' },
     achievement: { icon: '🏆', en: 'Achievement Unlocked', sw: 'Mafanikio Yamefunguliwa' },
     photo_challenge: { icon: '📸', en: 'Photo Challenge', sw: 'Changamoto ya Picha' },

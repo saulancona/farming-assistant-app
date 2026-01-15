@@ -1,10 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   X, Building2, MapPin, Phone, Mail, Globe, Camera,
   CheckCircle, Clock, AlertCircle, Edit2, Save, Plus, Trash2,
   FileText, Upload, Star, Package, TrendingUp, MessageCircle,
-  ChevronRight, ExternalLink, Share2
+  ChevronRight, ExternalLink, Share2, Loader
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { ReviewSummary } from './SellerRating';
@@ -12,6 +12,7 @@ import { SellerBadgeList, VerificationStatusBadge, UserRoleBadge } from './Selle
 import { ReviewList, LeaveReviewButton } from './Reviews';
 import { PRODUCT_CATEGORIES, getCategoryById } from '../../constants/marketplaceCategories';
 import * as db from '../../services/database';
+import { uploadBusinessProfilePhoto, uploadBusinessCoverPhoto } from '../../services/storage';
 import type { BusinessProfile as BusinessProfileType, SellerReview, UserRole, VerificationStatus, MarketplaceListing } from '../../types';
 import toast from 'react-hot-toast';
 
@@ -49,6 +50,10 @@ export function BusinessProfile({ userId, onClose, onViewListing, onContactSelle
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [uploadingCover, setUploadingCover] = useState(false);
+  const profilePhotoInputRef = useRef<HTMLInputElement>(null);
+  const coverPhotoInputRef = useRef<HTMLInputElement>(null);
 
   // Form state for editing
   const [formData, setFormData] = useState<Partial<BusinessProfileType>>({
@@ -151,6 +156,90 @@ export function BusinessProfile({ userId, onClose, onViewListing, onContactSelle
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
+  // Handle profile photo upload
+  const handleProfilePhotoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !user || !profile) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please select an image file');
+      return;
+    }
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('Image must be less than 5MB');
+      return;
+    }
+
+    setUploadingPhoto(true);
+    try {
+      // Upload using the storage service (handles fallback to base64 if storage fails)
+      const photoUrl = await uploadBusinessProfilePhoto(user.id, file);
+
+      // Update profile with new logo URL
+      const updated = await db.updateBusinessProfile(profile.id, {
+        logoUrl: photoUrl,
+      });
+
+      setProfile(updated);
+      setFormData(prev => ({ ...prev, logoUrl: photoUrl }));
+      toast.success('Profile picture updated!');
+    } catch (error: any) {
+      console.error('Error uploading profile photo:', error);
+      toast.error(error.message || 'Failed to upload profile picture');
+    } finally {
+      setUploadingPhoto(false);
+      // Reset input
+      if (profilePhotoInputRef.current) {
+        profilePhotoInputRef.current.value = '';
+      }
+    }
+  };
+
+  // Handle cover photo upload
+  const handleCoverPhotoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !user || !profile) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please select an image file');
+      return;
+    }
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('Image must be less than 5MB');
+      return;
+    }
+
+    setUploadingCover(true);
+    try {
+      // Upload using the storage service
+      const photoUrl = await uploadBusinessCoverPhoto(user.id, file);
+
+      // Update profile with new cover image URL
+      const updated = await db.updateBusinessProfile(profile.id, {
+        coverImageUrl: photoUrl,
+      });
+
+      setProfile(updated);
+      setFormData(prev => ({ ...prev, coverImageUrl: photoUrl }));
+      toast.success('Cover image updated!');
+    } catch (error: any) {
+      console.error('Error uploading cover photo:', error);
+      toast.error(error.message || 'Failed to upload cover image');
+    } finally {
+      setUploadingCover(false);
+      // Reset input
+      if (coverPhotoInputRef.current) {
+        coverPhotoInputRef.current.value = '';
+      }
+    }
+  };
+
   const getVerificationIcon = (status: VerificationStatus) => {
     switch (status) {
       case 'verified': return <CheckCircle className="text-green-500" size={16} />;
@@ -242,9 +331,33 @@ export function BusinessProfile({ userId, onClose, onViewListing, onContactSelle
         {/* Header */}
         <div className="relative">
           {/* Cover Image */}
-          <div className="h-32 bg-gradient-to-r from-green-600 to-green-400">
+          <div className="h-32 bg-gradient-to-r from-green-600 to-green-400 relative group">
             {profile?.coverImageUrl && (
               <img src={profile.coverImageUrl} alt="Cover" className="w-full h-full object-cover" />
+            )}
+            {/* Cover image upload button */}
+            {isOwnProfile && (
+              <>
+                <input
+                  type="file"
+                  ref={coverPhotoInputRef}
+                  accept="image/*"
+                  onChange={handleCoverPhotoUpload}
+                  className="hidden"
+                />
+                <button
+                  onClick={() => coverPhotoInputRef.current?.click()}
+                  disabled={uploadingCover}
+                  className="absolute bottom-2 right-12 p-2 bg-black/50 text-white rounded-full hover:bg-black/70 disabled:opacity-50 opacity-0 group-hover:opacity-100 transition-opacity"
+                  title="Change cover image"
+                >
+                  {uploadingCover ? (
+                    <Loader size={16} className="animate-spin" />
+                  ) : (
+                    <Camera size={16} />
+                  )}
+                </button>
+              </>
             )}
           </div>
 
@@ -270,9 +383,26 @@ export function BusinessProfile({ userId, onClose, onViewListing, onContactSelle
                   )}
                 </div>
                 {isOwnProfile && (
-                  <button className="absolute bottom-0 right-0 p-1.5 bg-green-600 text-white rounded-full hover:bg-green-700">
-                    <Camera size={14} />
-                  </button>
+                  <>
+                    <input
+                      type="file"
+                      ref={profilePhotoInputRef}
+                      accept="image/*"
+                      onChange={handleProfilePhotoUpload}
+                      className="hidden"
+                    />
+                    <button
+                      onClick={() => profilePhotoInputRef.current?.click()}
+                      disabled={uploadingPhoto}
+                      className="absolute bottom-0 right-0 p-1.5 bg-green-600 text-white rounded-full hover:bg-green-700 disabled:opacity-50"
+                    >
+                      {uploadingPhoto ? (
+                        <Loader size={14} className="animate-spin" />
+                      ) : (
+                        <Camera size={14} />
+                      )}
+                    </button>
+                  </>
                 )}
               </div>
 

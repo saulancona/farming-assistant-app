@@ -1,7 +1,8 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useCallback } from 'react';
 import { Loader, AlertTriangle, RefreshCw } from 'lucide-react';
 import { useUIStore, type Tab } from '../store/uiStore';
 import { useFarmOperations } from '../hooks/useFarmOperations';
+import { useRecordHarvest, type RecordHarvestInput } from '../hooks/useHarvests';
 import ErrorBoundary from '../components/ErrorBoundary';
 import type {
   Field,
@@ -9,7 +10,6 @@ import type {
   Income,
   Task,
   InventoryItem,
-  StorageBin,
   WeatherData,
   MarketPrice,
   DashboardStats,
@@ -33,16 +33,16 @@ const Marketplace = lazy(() => import('../components/Marketplace'));
 const Analytics = lazy(() => import('../components/Analytics'));
 const FarmCalendar = lazy(() => import('../components/FarmCalendar'));
 const InventoryManager = lazy(() => import('../components/InventoryManager'));
-const StorageBinManager = lazy(() => import('../components/StorageBinManager'));
 const RewardsOverview = lazy(() => import('../components/rewards/RewardsOverview'));
 const LearningProgress = lazy(() => import('../components/learning/LearningProgress'));
 const MissionHub = lazy(() => import('../components/missions/MissionHub'));
 const WeeklyChallenges = lazy(() => import('../components/challenges/WeeklyChallenges'));
-const PhotoChallenges = lazy(() => import('../components/challenges/PhotoChallenges'));
 const RewardsShop = lazy(() => import('../components/shop/RewardsShop'));
 const ReferralDashboard = lazy(() => import('../components/referrals/ReferralDashboard'));
 const TeamDashboard = lazy(() => import('../components/teams/TeamDashboard'));
 const StoryQuestsDashboard = lazy(() => import('../components/story-quests/StoryQuestsDashboard'));
+const HarvestTracker = lazy(() => import('../components/harvests/HarvestTracker'));
+const InputCostCalculator = lazy(() => import('../components/costs/InputCostCalculator'));
 
 // Loading fallback component
 function PageLoader() {
@@ -91,7 +91,6 @@ interface RouteContentProps {
   income: Income[];
   tasks: Task[];
   inventory: InventoryItem[];
-  storageBins: StorageBin[];
   weatherData: WeatherData | null;
   marketPrices: MarketPrice[];
   farmLocation: string;
@@ -108,7 +107,6 @@ export default function RouteContent({
   income,
   tasks,
   inventory,
-  storageBins,
   weatherData,
   marketPrices,
   farmLocation,
@@ -119,8 +117,19 @@ export default function RouteContent({
 }: RouteContentProps) {
   const { activeTab, setActiveTab } = useUIStore();
   const operations = useFarmOperations();
+  const recordHarvestMutation = useRecordHarvest();
 
   const isReadOnly = !userId;
+
+  // Callback to record harvest from FieldsManager
+  const handleRecordHarvest = useCallback(async (harvestInput: RecordHarvestInput) => {
+    if (!userId) return;
+
+    await recordHarvestMutation.mutateAsync({
+      ...harvestInput,
+      userId, // Override with actual userId
+    });
+  }, [userId, recordHarvestMutation]);
 
   const renderContent = () => {
     switch (activeTab) {
@@ -144,6 +153,7 @@ export default function RouteContent({
             onUpdateField={operations.updateField}
             onDeleteField={operations.deleteField}
             onAddInventory={operations.addInventory}
+            onRecordHarvest={handleRecordHarvest}
             readOnly={isReadOnly}
             onRequestAuth={onRequestAuth}
           />
@@ -195,16 +205,6 @@ export default function RouteContent({
           />
         );
 
-      case 'storage':
-        return (
-          <StorageBinManager
-            bins={storageBins}
-            onAddBin={operations.addStorageBin}
-            onUpdateBin={operations.updateStorageBin}
-            onDeleteBin={operations.deleteStorageBin}
-          />
-        );
-
       case 'pestcontrol':
         return <PestControl />;
 
@@ -249,9 +249,6 @@ export default function RouteContent({
       case 'challenges':
         return <WeeklyChallenges userId={userId} />;
 
-      case 'photo-challenges':
-        return <PhotoChallenges userId={userId} />;
-
       case 'shop':
         return <RewardsShop userId={userId} />;
 
@@ -263,6 +260,21 @@ export default function RouteContent({
 
       case 'story-quests':
         return <StoryQuestsDashboard userId={userId || ''} />;
+
+      case 'harvests':
+        return (
+          <HarvestTracker
+            userId={userId}
+            userFields={fields.map((f) => ({
+              id: f.id,
+              name: f.name,
+              cropType: f.cropType,
+            }))}
+          />
+        );
+
+      case 'costs':
+        return <InputCostCalculator userId={userId} />;
 
       case 'learning':
         return <LearningProgress userId={userId} />;

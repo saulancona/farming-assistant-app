@@ -1,5 +1,5 @@
 import { supabase } from '../lib/supabase';
-import type { Field, Expense, Income, Task, InventoryItem, StorageBin, CommunityPost, Message, Conversation, KnowledgeArticle, MarketplaceListing, BusinessProfile, SellerReview, SavedSearch, SavedSearchCriteria } from '../types';
+import type { Field, Expense, Income, Task, InventoryItem, StorageBin, CommunityPost, Message, Conversation, KnowledgeArticle, MarketplaceListing, BusinessProfile, SellerReview, SavedSearch, SavedSearchCriteria, FarmerGroup, GroupMembership } from '../types';
 
 // Helper to get current user ID
 async function getCurrentUserId(): Promise<string> {
@@ -435,6 +435,162 @@ export async function hasUserLikedPost(postId: string, userId: string): Promise<
 
   if (error && error.code !== 'PGRST116') throw error; // PGRST116 is "no rows returned"
   return !!data;
+}
+
+// ============================================
+// FARMER GROUPS (Communities)
+// ============================================
+
+export async function getAllGroups(): Promise<FarmerGroup[]> {
+  const { data, error } = await supabase
+    .from('farmer_groups')
+    .select('*')
+    .eq('is_public', true)
+    .order('member_count', { ascending: false });
+
+  if (error) throw error;
+  return toCamelCase(data || []);
+}
+
+export async function getGroupsByCategory(category: string): Promise<FarmerGroup[]> {
+  const { data, error } = await supabase
+    .from('farmer_groups')
+    .select('*')
+    .eq('category', category)
+    .eq('is_public', true)
+    .order('member_count', { ascending: false });
+
+  if (error) throw error;
+  return toCamelCase(data || []);
+}
+
+export async function getGroup(groupId: string): Promise<FarmerGroup> {
+  const { data, error } = await supabase
+    .from('farmer_groups')
+    .select('*')
+    .eq('id', groupId)
+    .single();
+
+  if (error) throw error;
+  return toCamelCase(data);
+}
+
+export async function getUserGroups(_userId: string): Promise<FarmerGroup[]> {
+  // Note: The RPC uses auth.uid() internally, userId param kept for API consistency
+  const { data, error } = await supabase.rpc('get_user_groups');
+
+  if (error) throw error;
+  return toCamelCase(data || []);
+}
+
+export async function isUserMemberOfGroup(groupId: string, userId: string): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('group_memberships')
+    .select('id')
+    .eq('group_id', groupId)
+    .eq('user_id', userId)
+    .eq('status', 'active')
+    .single();
+
+  if (error && error.code !== 'PGRST116') throw error;
+  return !!data;
+}
+
+export async function joinGroup(groupId: string): Promise<GroupMembership> {
+  const { data, error } = await supabase.rpc('join_group', { p_group_id: groupId });
+
+  if (error) throw error;
+  return toCamelCase(data);
+}
+
+export async function leaveGroup(groupId: string): Promise<void> {
+  const { error } = await supabase.rpc('leave_group', { p_group_id: groupId });
+
+  if (error) throw error;
+}
+
+export async function createGroup(group: {
+  name: string;
+  description?: string;
+  category: string;
+  iconEmoji?: string;
+  isPublic?: boolean;
+  requiresApproval?: boolean;
+  tags?: string[];
+  region?: string;
+  country?: string;
+}): Promise<FarmerGroup> {
+  const { data, error } = await supabase.rpc('create_group', {
+    p_name: group.name,
+    p_description: group.description || null,
+    p_category: group.category,
+    p_icon_emoji: group.iconEmoji || '🌾',
+    p_is_public: group.isPublic ?? true,
+    p_requires_approval: group.requiresApproval ?? false,
+    p_tags: group.tags || [],
+    p_region: group.region || null,
+    p_country: group.country || null
+  });
+
+  if (error) throw error;
+  return toCamelCase(data);
+}
+
+export async function getGroupPosts(groupId: string | null, filterType?: string): Promise<CommunityPost[]> {
+  let query = supabase
+    .from('community_posts')
+    .select('*, farmer_groups(name)')
+    .order('created_at', { ascending: false });
+
+  if (groupId) {
+    query = query.eq('group_id', groupId);
+  }
+
+  if (filterType && filterType !== 'all') {
+    query = query.eq('type', filterType);
+  }
+
+  const { data, error } = await query;
+
+  if (error) throw error;
+
+  // Map the joined data
+  return (data || []).map((post: Record<string, unknown> & { farmer_groups?: { name: string } }) => ({
+    ...toCamelCase(post),
+    groupName: post.farmer_groups?.name
+  }));
+}
+
+export async function addGroupPost(
+  post: Omit<CommunityPost, 'id' | 'createdAt' | 'likesCount' | 'commentsCount'>,
+  groupId?: string
+): Promise<CommunityPost> {
+  const userId = await getCurrentUserId();
+  const { data, error } = await supabase
+    .from('community_posts')
+    .insert([{
+      ...toSnakeCase(post),
+      user_id: userId,
+      group_id: groupId || null
+    }])
+    .select()
+    .single();
+
+  if (error) throw error;
+  return toCamelCase(data);
+}
+
+export async function searchGroups(query: string): Promise<FarmerGroup[]> {
+  const { data, error } = await supabase
+    .from('farmer_groups')
+    .select('*')
+    .eq('is_public', true)
+    .or(`name.ilike.%${query}%,description.ilike.%${query}%`)
+    .order('member_count', { ascending: false })
+    .limit(20);
+
+  if (error) throw error;
+  return toCamelCase(data || []);
 }
 
 // ============================================

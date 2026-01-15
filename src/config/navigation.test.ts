@@ -15,12 +15,12 @@ describe('navigation config', () => {
     expect(categoryIds).toContain('money');
     expect(categoryIds).toContain('market');
     expect(categoryIds).toContain('learn');
+    expect(categoryIds).toContain('community');
     expect(categoryIds).toContain('rewards');
-    expect(categoryIds).toContain('settings');
   });
 
   it('should have navigation items for each category', () => {
-    const categories = ['home', 'farm', 'money', 'market', 'learn', 'rewards', 'settings'] as const;
+    const categories = ['home', 'farm', 'money', 'market', 'learn', 'community', 'rewards'] as const;
     categories.forEach(category => {
       const items = getNavigationItemsByCategory(category);
       expect(items.length).toBeGreaterThan(0);
@@ -50,9 +50,17 @@ describe('navigation config', () => {
     expect(rewardIds).toContain('rewards');
     expect(rewardIds).toContain('missions');
     expect(rewardIds).toContain('challenges');
-    expect(rewardIds).toContain('referrals');
     expect(rewardIds).toContain('shop');
-    expect(rewardIds).toContain('teams');
     expect(rewardIds).toContain('story-quests');
+  });
+
+  it('should include community features in community category', () => {
+    const communityItems = getNavigationItemsByCategory('community');
+    const communityIds = communityItems.map(c => c.id);
+
+    expect(communityIds).toContain('community');
+    expect(communityIds).toContain('messages');
+    expect(communityIds).toContain('referrals');
+    expect(communityIds).toContain('teams');
   });
 });

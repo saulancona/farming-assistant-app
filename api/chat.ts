@@ -28,6 +28,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     const genAI = new GoogleGenerativeAI(apiKey);
+    // Using gemini-2.0-flash - current stable flash model
     const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
 
     // Build system context
@@ -113,6 +114,16 @@ RESPONSE FORMAT:
     return res.status(200).json({ response: text });
   } catch (error: any) {
     console.error('Chat error:', error);
+
+    // Check for rate limit errors
+    if (error.message?.includes('429') || error.message?.includes('quota') || error.message?.includes('Too Many Requests')) {
+      return res.status(429).json({
+        error: 'Rate limit exceeded',
+        details: 'The AI service is temporarily busy. Please wait a minute and try again.',
+        retryAfter: 60
+      });
+    }
+
     return res.status(500).json({
       error: 'Chat failed',
       details: error.message

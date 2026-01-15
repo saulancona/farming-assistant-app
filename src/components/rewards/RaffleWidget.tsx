@@ -18,6 +18,17 @@ export default function RaffleWidget({ userId, compact = false }: RaffleWidgetPr
   const { data: leaderboard } = useRaffleLeaderboard(5);
   const { data: pastWinners } = useRafflePastWinners(3);
 
+  // Calculate fallback values (used when API fails or still loading)
+  const now = new Date();
+  const currentMonth = now.getMonth() + 1;
+  const drawMonth = currentMonth <= 6 ? 6 : 12;
+  const fallbackDrawDate = new Date(now.getFullYear(), drawMonth - 1, drawMonth === 6 ? 30 : 31);
+  const fallbackDaysRemaining = Math.max(0, Math.ceil((fallbackDrawDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
+
+  // Use actual data if available, otherwise use fallback values
+  const userEntries = raffleStatus?.userEntries ?? 0;
+  const daysRemaining = raffleStatus?.daysRemaining ?? fallbackDaysRemaining;
+
   if (isLoading) {
     return (
       <div className={`bg-white dark:bg-gray-800 rounded-xl ${compact ? 'p-3' : 'p-4'} animate-pulse`}>
@@ -26,12 +37,9 @@ export default function RaffleWidget({ userId, compact = false }: RaffleWidgetPr
     );
   }
 
-  if (!raffleStatus) {
-    return null;
-  }
-
-  const monthName = getMonthName(raffleStatus.month, isSwahili);
-  const prizeName = isSwahili ? raffleStatus.prize?.nameSw : raffleStatus.prize?.name;
+  // Get month name and prize name (use defaults if not available)
+  const monthName = raffleStatus ? getMonthName(raffleStatus.month, isSwahili) : getMonthName(drawMonth, isSwahili);
+  const prizeName = raffleStatus?.prize ? (isSwahili ? raffleStatus.prize.nameSw : raffleStatus.prize.name) : (isSwahili ? 'Paneli ya Jua' : 'Solar Panel');
 
   // Compact widget for dashboard
   if (compact) {
@@ -49,7 +57,7 @@ export default function RaffleWidget({ userId, compact = false }: RaffleWidgetPr
             </div>
             <div>
               <p className="text-sm opacity-90">
-                {isSwahili ? 'Bahati Nasibu ya Mwezi' : 'Monthly Raffle'}
+                {isSwahili ? 'Bahati Nasibu' : 'Bi-Annual Raffle'}
               </p>
               <p className="font-bold text-lg">
                 {isSwahili ? 'Paneli ya Jua' : 'Solar Panel'}
@@ -59,7 +67,7 @@ export default function RaffleWidget({ userId, compact = false }: RaffleWidgetPr
           <div className="text-right">
             <div className="flex items-center gap-1">
               <Ticket className="w-4 h-4" />
-              <span className="text-2xl font-bold">{raffleStatus.userEntries}</span>
+              <span className="text-2xl font-bold">{userEntries}</span>
             </div>
             <p className="text-xs opacity-80">
               {isSwahili ? 'tiketi zako' : 'your tickets'}
@@ -70,7 +78,7 @@ export default function RaffleWidget({ userId, compact = false }: RaffleWidgetPr
         <div className="mt-3 flex items-center justify-between text-sm">
           <div className="flex items-center gap-1 opacity-80">
             <Calendar className="w-4 h-4" />
-            <span>{raffleStatus.daysRemaining} {isSwahili ? 'siku zilizobaki' : 'days left'}</span>
+            <span>{daysRemaining} {isSwahili ? 'siku zilizobaki' : 'days left'}</span>
           </div>
           <div className="flex items-center gap-1">
             <span className="opacity-80">{isSwahili ? 'Tazama' : 'View'}</span>
@@ -79,19 +87,25 @@ export default function RaffleWidget({ userId, compact = false }: RaffleWidgetPr
         </div>
 
         {/* Details Modal */}
-        <RaffleDetailsModal
-          isOpen={showDetails}
-          onClose={() => setShowDetails(false)}
-          raffleStatus={raffleStatus}
-          leaderboard={leaderboard || []}
-          pastWinners={pastWinners || []}
-          isSwahili={isSwahili}
-        />
+        {raffleStatus && (
+          <RaffleDetailsModal
+            isOpen={showDetails}
+            onClose={() => setShowDetails(false)}
+            raffleStatus={raffleStatus}
+            leaderboard={leaderboard || []}
+            pastWinners={pastWinners || []}
+            isSwahili={isSwahili}
+          />
+        )}
       </motion.div>
     );
   }
 
-  // Full widget
+  // Full widget - requires raffleStatus to be available
+  if (!raffleStatus) {
+    return null; // Full widget requires data
+  }
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -287,7 +301,7 @@ function RaffleDetailsModal({ isOpen, onClose, raffleStatus, leaderboard, pastWi
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-bold flex items-center gap-2">
                 <Sun className="w-5 h-5" />
-                {isSwahili ? 'Bahati Nasibu ya Mwezi' : 'Monthly Raffle'}
+                {isSwahili ? 'Bahati Nasibu' : 'Bi-Annual Raffle'}
               </h3>
               <button
                 onClick={onClose}

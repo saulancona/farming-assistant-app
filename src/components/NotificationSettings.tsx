@@ -1,21 +1,28 @@
 import { useState, useEffect } from 'react';
-import { Bell, Check, X, AlertTriangle } from 'lucide-react';
+import { Bell, Check, X, AlertTriangle, Sun } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { useAuth } from '../contexts/AuthContext';
 import {
   getNotificationPermission,
   requestNotificationPermission,
   showNotification,
   startWeatherNotificationService,
   stopWeatherNotificationService,
+  startMorningBriefingService,
+  stopMorningBriefingService,
+  triggerMorningBriefing,
 } from '../services/notifications';
 
 export default function NotificationSettings() {
   const { t } = useTranslation();
+  const { user } = useAuth();
   const [permission, setPermission] = useState<NotificationPermission | 'unsupported'>('default');
   const [isRequesting, setIsRequesting] = useState(false);
   const [weatherAlertsEnabled, setWeatherAlertsEnabled] = useState(true);
   const [taskRemindersEnabled, setTaskRemindersEnabled] = useState(true);
   const [marketAlertsEnabled, setMarketAlertsEnabled] = useState(false);
+  const [morningBriefingEnabled, setMorningBriefingEnabled] = useState(true);
+  const [isTestingBriefing, setIsTestingBriefing] = useState(false);
 
   useEffect(() => {
     // Check current permission status
@@ -25,19 +32,24 @@ export default function NotificationSettings() {
     setWeatherAlertsEnabled(localStorage.getItem('agroafrica_weather_alerts') !== 'false');
     setTaskRemindersEnabled(localStorage.getItem('agroafrica_task_reminders') !== 'false');
     setMarketAlertsEnabled(localStorage.getItem('agroafrica_market_alerts') === 'true');
+    setMorningBriefingEnabled(localStorage.getItem('agroafrica_morning_briefing') !== 'false');
 
-    // Start weather notification service if enabled
+    // Start services if enabled
     if (
       localStorage.getItem('agroafrica_notifications_enabled') === 'true' &&
       getNotificationPermission() === 'granted'
     ) {
       startWeatherNotificationService();
+      if (user?.id) {
+        startMorningBriefingService(user.id);
+      }
     }
 
     return () => {
       stopWeatherNotificationService();
+      stopMorningBriefingService();
     };
-  }, []);
+  }, [user?.id]);
 
   const handleRequestPermission = async () => {
     setIsRequesting(true);
@@ -47,6 +59,9 @@ export default function NotificationSettings() {
 
     if (result === 'granted') {
       startWeatherNotificationService();
+      if (user?.id) {
+        startMorningBriefingService(user.id);
+      }
       // Show a test notification
       await showNotification({
         title: '✅ Notifications Enabled',
@@ -71,12 +86,29 @@ export default function NotificationSettings() {
     localStorage.setItem('agroafrica_market_alerts', enabled.toString());
   };
 
+  const handleToggleMorningBriefing = (enabled: boolean) => {
+    setMorningBriefingEnabled(enabled);
+    localStorage.setItem('agroafrica_morning_briefing', enabled.toString());
+    if (enabled && user?.id) {
+      startMorningBriefingService(user.id);
+    } else {
+      stopMorningBriefingService();
+    }
+  };
+
   const handleTestNotification = async () => {
     await showNotification({
       title: '🧪 Test Notification',
       body: 'This is a test notification from AgroAfrica. Your notifications are working correctly!',
       tag: 'test-notification',
     });
+  };
+
+  const handleTestMorningBriefing = async () => {
+    if (!user?.id) return;
+    setIsTestingBriefing(true);
+    await triggerMorningBriefing(user.id);
+    setIsTestingBriefing(false);
   };
 
   if (permission === 'unsupported') {
@@ -254,6 +286,43 @@ export default function NotificationSettings() {
                 <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-green-300 rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
               </label>
             </div>
+
+            {/* Morning Briefing */}
+            <div className="flex items-center justify-between pt-4 border-t border-gray-200">
+              <div className="flex items-center gap-3">
+                <Sun className="w-6 h-6 text-orange-500" />
+                <div>
+                  <p className="font-medium text-gray-900">
+                    {t('notifications.morningBriefing', 'Morning Briefing')}
+                  </p>
+                  <p className="text-sm text-gray-500">
+                    {t('notifications.morningBriefingDesc', 'Daily summary at 7:00 AM with weather, tasks & activities')}
+                  </p>
+                </div>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={morningBriefingEnabled}
+                  onChange={(e) => handleToggleMorningBriefing(e.target.checked)}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-green-300 rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
+              </label>
+            </div>
+            {morningBriefingEnabled && (
+              <div className="ml-9 mt-2">
+                <button
+                  onClick={handleTestMorningBriefing}
+                  disabled={isTestingBriefing}
+                  className="text-sm text-orange-600 hover:text-orange-700 underline disabled:opacity-50"
+                >
+                  {isTestingBriefing
+                    ? t('notifications.sendingBriefing', 'Sending...')
+                    : t('notifications.testBriefing', 'Send Test Briefing Now')}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -265,6 +334,7 @@ export default function NotificationSettings() {
             {t('notifications.examples', 'Example Alerts You Will Receive:')}
           </h4>
           <ul className="text-sm text-blue-800 space-y-1">
+            <li>• ☀️ Morning briefing at 7 AM with weather, tasks & calendar</li>
             <li>• 🥶 Frost warning when temperature drops below 2°C</li>
             <li>• 🌡️ Heat wave alert above 35°C</li>
             <li>• 💨 High wind warning above 40 km/h</li>

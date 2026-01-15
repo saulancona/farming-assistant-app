@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Edit2, Trash2, CheckCircle, Clock, AlertCircle, Calendar, X } from 'lucide-react';
+import { Plus, Edit2, Trash2, CheckCircle, Clock, AlertCircle, Calendar, X, ChevronDown } from 'lucide-react';
 import { format, isPast, isToday, isTomorrow, parseISO, isValid } from 'date-fns';
 import { useTranslation } from 'react-i18next';
 import type { Task, Field } from '../types';
@@ -34,7 +34,7 @@ export default function TaskManager({ tasks, fields, userId, onAddTask, onUpdate
   const [filterStatus, setFilterStatus] = useState<Task['status'] | 'all'>('all');
   const awardMicroReward = useAwardMicroReward();
   const updateChallengeProgress = useUpdateChallengeProgress();
-  const [formData, setFormData] = useState<Omit<Task, 'id'>>({
+  const [formData, setFormData] = useState<Omit<Task, 'id'> & { fieldIds: string[] }>({
     title: '',
     description: '',
     dueDate: '',
@@ -43,11 +43,15 @@ export default function TaskManager({ tasks, fields, userId, onAddTask, onUpdate
     fieldId: '',
     fieldName: '',
     assignedTo: '',
+    fieldIds: [],
   });
+  const [showFieldDropdown, setShowFieldDropdown] = useState(false);
 
   const handleOpenModal = (task?: Task) => {
     if (task) {
       setEditingTask(task);
+      // Convert existing fieldId to fieldIds array for backward compatibility
+      const existingFieldIds = task.fieldId ? [task.fieldId] : [];
       setFormData({
         title: task.title,
         description: task.description || '',
@@ -57,6 +61,7 @@ export default function TaskManager({ tasks, fields, userId, onAddTask, onUpdate
         fieldId: task.fieldId || '',
         fieldName: task.fieldName || '',
         assignedTo: task.assignedTo || '',
+        fieldIds: existingFieldIds,
       });
     } else {
       setEditingTask(null);
@@ -69,9 +74,11 @@ export default function TaskManager({ tasks, fields, userId, onAddTask, onUpdate
         fieldId: '',
         fieldName: '',
         assignedTo: '',
+        fieldIds: [],
       });
     }
     setIsModalOpen(true);
+    setShowFieldDropdown(false);
   };
 
   const handleCloseModal = () => {
@@ -81,7 +88,7 @@ export default function TaskManager({ tasks, fields, userId, onAddTask, onUpdate
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const selectedField = fields.find(f => f.id === formData.fieldId);
+    const selectedFields = fields.filter(f => formData.fieldIds.includes(f.id));
     const taskData: any = {
       title: formData.title,
       description: formData.description,
@@ -91,10 +98,21 @@ export default function TaskManager({ tasks, fields, userId, onAddTask, onUpdate
       completedAt: formData.status === 'completed' ? new Date().toISOString() : undefined,
     };
 
-    // Only include fieldId and fieldName if a field was actually selected
-    if (formData.fieldId && selectedField) {
-      taskData.fieldId = formData.fieldId;
-      taskData.fieldName = selectedField.name;
+    // Include fieldId/fieldName for backward compatibility (use first selected field)
+    // Also include fieldIds array and fieldNames for multiple fields
+    if (selectedFields.length > 0) {
+      taskData.fieldId = selectedFields[0].id;
+      // Show "All Fields" when all fields are selected, otherwise list names
+      const allFieldsSelected = selectedFields.length === fields.length;
+      taskData.fieldName = allFieldsSelected
+        ? t('common.allFields', 'All Fields')
+        : selectedFields.map(f => f.name).join(', ');
+      // Store all field IDs as comma-separated string for now (can be parsed later)
+      if (selectedFields.length > 1 && !allFieldsSelected) {
+        taskData.description = formData.description
+          ? `${formData.description}\n[Fields: ${selectedFields.map(f => f.name).join(', ')}]`
+          : `[Fields: ${selectedFields.map(f => f.name).join(', ')}]`;
+      }
     }
 
     // Only include assignedTo if provided
@@ -115,6 +133,29 @@ export default function TaskManager({ tasks, fields, userId, onAddTask, onUpdate
       }
     }
     handleCloseModal();
+  };
+
+  const toggleFieldSelection = (fieldId: string) => {
+    setFormData(prev => ({
+      ...prev,
+      fieldIds: prev.fieldIds.includes(fieldId)
+        ? prev.fieldIds.filter(id => id !== fieldId)
+        : [...prev.fieldIds, fieldId]
+    }));
+  };
+
+  const selectAllFields = () => {
+    setFormData(prev => ({
+      ...prev,
+      fieldIds: fields.map(f => f.id)
+    }));
+  };
+
+  const clearAllFields = () => {
+    setFormData(prev => ({
+      ...prev,
+      fieldIds: []
+    }));
   };
 
   const handleToggleComplete = (task: Task) => {
@@ -500,22 +541,116 @@ export default function TaskManager({ tasks, fields, userId, onAddTask, onUpdate
                     </select>
                   </div>
 
-                  <div>
+                  <div className="relative">
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      {t('tasks.fieldOptional', 'Field (optional)')}
+                      {t('tasks.fieldsOptional', 'Fields (optional)')}
                     </label>
-                    <select
-                      value={formData.fieldId}
-                      onChange={(e) => setFormData({ ...formData, fieldId: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                    <button
+                      type="button"
+                      onClick={() => setShowFieldDropdown(!showFieldDropdown)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 bg-white text-left flex items-center justify-between"
                     >
-                      <option value="">{t('expenses.none', 'None')}</option>
-                      {fields.map((field) => (
-                        <option key={field.id} value={field.id}>
-                          {field.name} - {field.cropType}
-                        </option>
-                      ))}
-                    </select>
+                      <span className={formData.fieldIds.length === 0 ? 'text-gray-400' : 'text-gray-900'}>
+                        {formData.fieldIds.length === 0
+                          ? t('tasks.selectFields', 'Select fields...')
+                          : formData.fieldIds.length === fields.length && fields.length > 0
+                            ? t('common.allFields', 'All Fields')
+                            : formData.fieldIds.length === 1
+                              ? fields.find(f => f.id === formData.fieldIds[0])?.name
+                              : t('tasks.fieldsSelected', '{{count}} fields selected', { count: formData.fieldIds.length })}
+                      </span>
+                      <ChevronDown size={16} className={`text-gray-400 transition-transform ${showFieldDropdown ? 'rotate-180' : ''}`} />
+                    </button>
+
+                    {showFieldDropdown && (
+                      <div className="absolute z-10 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                        <div className="p-2 border-b border-gray-200 flex gap-2">
+                          <button
+                            type="button"
+                            onClick={selectAllFields}
+                            className="text-xs text-green-600 hover:text-green-700 font-medium"
+                          >
+                            {t('common.selectAll', 'Select All')}
+                          </button>
+                          <span className="text-gray-300">|</span>
+                          <button
+                            type="button"
+                            onClick={clearAllFields}
+                            className="text-xs text-gray-500 hover:text-gray-700 font-medium"
+                          >
+                            {t('common.clearAll', 'Clear All')}
+                          </button>
+                        </div>
+                        {fields.length === 0 ? (
+                          <div className="p-3 text-sm text-gray-500 text-center">
+                            {t('tasks.noFieldsAvailable', 'No fields available')}
+                          </div>
+                        ) : (
+                          <>
+                            {/* All Fields option */}
+                            <label
+                              className="flex items-center gap-3 px-3 py-2 hover:bg-green-50 cursor-pointer border-b border-gray-100 bg-green-50/50"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={formData.fieldIds.length === fields.length && fields.length > 0}
+                                onChange={() => {
+                                  if (formData.fieldIds.length === fields.length) {
+                                    clearAllFields();
+                                  } else {
+                                    selectAllFields();
+                                  }
+                                }}
+                                className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500"
+                              />
+                              <span className="text-sm font-medium text-green-700">
+                                {t('common.allFields', 'All Fields')}
+                              </span>
+                            </label>
+                            {fields.map((field) => (
+                              <label
+                                key={field.id}
+                                className="flex items-center gap-3 px-3 py-2 hover:bg-gray-50 cursor-pointer"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={formData.fieldIds.includes(field.id)}
+                                  onChange={() => toggleFieldSelection(field.id)}
+                                  className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500"
+                                />
+                                <span className="text-sm text-gray-700">
+                                  {field.name} - {field.cropType}
+                                </span>
+                              </label>
+                            ))}
+                          </>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Selected fields tags - hide when all fields selected */}
+                    {formData.fieldIds.length > 0 && formData.fieldIds.length < fields.length && (
+                      <div className="flex flex-wrap gap-1 mt-2">
+                        {formData.fieldIds.map(fieldId => {
+                          const field = fields.find(f => f.id === fieldId);
+                          return field ? (
+                            <span
+                              key={fieldId}
+                              className="inline-flex items-center gap-1 px-2 py-1 bg-green-100 text-green-700 text-xs rounded-full"
+                            >
+                              {field.name}
+                              <button
+                                type="button"
+                                onClick={() => toggleFieldSelection(fieldId)}
+                                className="hover:text-green-900"
+                              >
+                                <X size={12} />
+                              </button>
+                            </span>
+                          ) : null;
+                        })}
+                      </div>
+                    )}
                   </div>
 
                   <div>

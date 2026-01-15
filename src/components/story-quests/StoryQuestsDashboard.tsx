@@ -16,6 +16,9 @@ import {
   Calendar,
   Target,
   Award,
+  AlertTriangle,
+  Loader2,
+  RefreshCw,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -33,6 +36,8 @@ import {
   getCropIcon,
   getCropLabel,
 } from '../../hooks/useStoryQuests';
+import { uploadStoryPhoto, compressImage, fileToDataUrl } from '../../services/storage';
+import { verifyPhoto, getExpectedPhotoDescription, type PhotoVerificationResult } from '../../services/photoVerification';
 import type { UserStoryQuest, StoryQuestTemplate, StoryMilestoneType, FeaturedStory } from '../../types';
 
 interface StoryQuestsDashboardProps {
@@ -591,6 +596,9 @@ function QuestDetailModal({
   onClose: () => void;
 }) {
   const [uploadingMilestone, setUploadingMilestone] = useState<StoryMilestoneType | null>(null);
+  const [verifyingPhoto, setVerifyingPhoto] = useState(false);
+  const [verificationResult, setVerificationResult] = useState<PhotoVerificationResult | null>(null);
+  const [pendingFile, setPendingFile] = useState<{ file: File; milestone: StoryMilestoneType } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const uploadMutation = useUploadMilestonePhoto();
 
@@ -599,6 +607,7 @@ function QuestDetailModal({
 
   const handlePhotoSelect = (milestone: StoryMilestoneType) => {
     setUploadingMilestone(milestone);
+    setVerificationResult(null);
     fileInputRef.current?.click();
   };
 
@@ -606,21 +615,87 @@ function QuestDetailModal({
     const file = e.target.files?.[0];
     if (!file || !uploadingMilestone) return;
 
-    // In a real app, upload to storage first
-    // For now, we'll create a placeholder URL
-    const photoUrl = URL.createObjectURL(file);
+    // First, verify the photo
+    setVerifyingPhoto(true);
+    setPendingFile({ file, milestone: uploadingMilestone });
 
     try {
+      const verification = await verifyPhoto(file, uploadingMilestone, {
+        cropType: quest.template.cropType,
+      });
+
+      setVerificationResult(verification);
+
+      if (verification.isValid) {
+        // Photo is valid, proceed with upload
+        await processUpload(file, uploadingMilestone);
+      }
+      // If not valid, show the rejection modal (handled by verificationResult state)
+    } catch (error) {
+      console.error('Photo verification failed:', error);
+      // On verification error, still allow upload (graceful degradation)
+      await processUpload(file, uploadingMilestone);
+    } finally {
+      setVerifyingPhoto(false);
+    }
+  };
+
+  const processUpload = async (file: File, milestone: StoryMilestoneType) => {
+    try {
+      // Compress image before upload
+      let fileToUpload: File | Blob = file;
+      if (file.size > 500000) { // If larger than 500KB, compress
+        try {
+          fileToUpload = await compressImage(file, 1200, 1200, 0.8);
+        } catch (compressError) {
+          console.warn('Image compression failed, using original:', compressError);
+        }
+      }
+
+      // Try to upload to Supabase Storage
+      let photoUrl: string;
+      try {
+        photoUrl = await uploadStoryPhoto(userId, quest.id, milestone, file);
+      } catch (uploadError) {
+        console.warn('Storage upload failed, using base64 fallback:', uploadError);
+        // Fallback to base64 data URL if storage fails
+        photoUrl = await fileToDataUrl(fileToUpload);
+      }
+
+      // Save the photo reference in the database
       await uploadMutation.mutateAsync({
         userId,
         questId: quest.id,
-        milestoneType: uploadingMilestone,
+        milestoneType: milestone,
         photoUrl,
       });
+
+      // Clear states on success
+      setVerificationResult(null);
+      setPendingFile(null);
     } catch (error) {
       console.error('Failed to upload photo:', error);
+      // Show error to user
+      alert(isSwahili
+        ? 'Imeshindwa kupakia picha. Tafadhali jaribu tena.'
+        : 'Failed to upload photo. Please try again.');
     }
 
+    setUploadingMilestone(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const handleRetryPhoto = () => {
+    setVerificationResult(null);
+    setPendingFile(null);
+    fileInputRef.current?.click();
+  };
+
+  const handleDismissRejection = () => {
+    setVerificationResult(null);
+    setPendingFile(null);
     setUploadingMilestone(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
@@ -730,20 +805,34 @@ function QuestDetailModal({
                         </p>
                       </div>
                     ) : quest.status === 'active' ? (
-                      <button
-                        onClick={() => handlePhotoSelect(milestone)}
-                        disabled={uploadMutation.isPending}
-                        className="mt-3 flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg transition disabled:opacity-50"
-                      >
-                        <Camera className="w-4 h-4" />
-                        {uploadMutation.isPending && uploadingMilestone === milestone
-                          ? isSwahili
-                            ? 'Inapakia...'
-                            : 'Uploading...'
-                          : isSwahili
-                          ? 'Pakia Picha'
-                          : 'Upload Photo'}
-                      </button>
+                      <div className="mt-3">
+                        {/* Expected photo hint */}
+                        <p className="text-xs text-gray-400 dark:text-gray-500 mb-2 italic">
+                          {getExpectedPhotoDescription(milestone, quest.template.cropType, isSwahili)}
+                        </p>
+                        <button
+                          onClick={() => handlePhotoSelect(milestone)}
+                          disabled={uploadMutation.isPending || verifyingPhoto}
+                          className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg transition disabled:opacity-50"
+                        >
+                          {verifyingPhoto && uploadingMilestone === milestone ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                              {isSwahili ? 'Inakagua picha...' : 'Verifying photo...'}
+                            </>
+                          ) : uploadMutation.isPending && uploadingMilestone === milestone ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                              {isSwahili ? 'Inapakia...' : 'Uploading...'}
+                            </>
+                          ) : (
+                            <>
+                              <Camera className="w-4 h-4" />
+                              {isSwahili ? 'Pakia Picha' : 'Upload Photo'}
+                            </>
+                          )}
+                        </button>
+                      </div>
                     ) : null}
                   </div>
                 </div>
@@ -760,6 +849,76 @@ function QuestDetailModal({
             className="hidden"
             onChange={handleFileChange}
           />
+
+          {/* Photo Rejection Alert */}
+          {verificationResult && !verificationResult.isValid && pendingFile && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-4"
+            >
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center flex-shrink-0">
+                  <AlertTriangle className="w-5 h-5 text-red-600 dark:text-red-400" />
+                </div>
+                <div className="flex-1">
+                  <h4 className="font-semibold text-red-800 dark:text-red-300">
+                    {isSwahili ? 'Picha Imekataliwa' : 'Photo Rejected'}
+                  </h4>
+                  <p className="text-sm text-red-600 dark:text-red-400 mt-1">
+                    {isSwahili
+                      ? verificationResult.reasonSw || verificationResult.reason
+                      : verificationResult.reason}
+                  </p>
+
+                  {/* What was detected */}
+                  {verificationResult.detectedContent && (
+                    <p className="text-xs text-red-500 dark:text-red-500 mt-2">
+                      <strong>{isSwahili ? 'Imeonekana:' : 'Detected:'}</strong>{' '}
+                      {verificationResult.detectedContent}
+                    </p>
+                  )}
+
+                  {/* Suggestions */}
+                  {verificationResult.suggestions && verificationResult.suggestions.length > 0 && (
+                    <div className="mt-3">
+                      <p className="text-xs font-medium text-red-700 dark:text-red-400">
+                        {isSwahili ? 'Mapendekezo:' : 'Suggestions:'}
+                      </p>
+                      <ul className="mt-1 space-y-1">
+                        {(isSwahili
+                          ? verificationResult.suggestionsSw || verificationResult.suggestions
+                          : verificationResult.suggestions
+                        ).map((suggestion, idx) => (
+                          <li key={idx} className="text-xs text-red-600 dark:text-red-400 flex items-start gap-1">
+                            <span>•</span>
+                            <span>{suggestion}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Action Buttons */}
+                  <div className="flex gap-2 mt-4">
+                    <button
+                      onClick={handleRetryPhoto}
+                      className="flex-1 py-2 px-3 bg-amber-500 hover:bg-amber-600 text-white text-sm rounded-lg transition flex items-center justify-center gap-1"
+                    >
+                      <RefreshCw className="w-4 h-4" />
+                      {isSwahili ? 'Jaribu Tena' : 'Try Again'}
+                    </button>
+                    <button
+                      onClick={handleDismissRejection}
+                      className="py-2 px-3 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 text-sm rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition"
+                    >
+                      {isSwahili ? 'Funga' : 'Dismiss'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          )}
 
           {/* Rewards Section */}
           <div className="mt-6 p-4 bg-amber-50 dark:bg-amber-900/20 rounded-xl">

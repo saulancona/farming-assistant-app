@@ -7,40 +7,92 @@ import type {
   TeamType,
 } from '../types';
 
+// Extended TeamDetails with user role info
+export interface UserTeamDetails extends TeamDetails {
+  userRole?: 'leader' | 'member';
+  joinedAt?: string;
+}
+
 // ============================================
-// GET USER'S TEAM
+// GET USER'S TEAMS (MULTIPLE)
 // ============================================
 
-export function useUserTeam(userId: string | undefined) {
+export function useUserTeams(userId: string | undefined) {
   return useQuery({
-    queryKey: ['userTeam', userId],
-    queryFn: async (): Promise<TeamDetails | null> => {
-      if (!userId) return null;
+    queryKey: ['userTeams', userId],
+    queryFn: async (): Promise<UserTeamDetails[]> => {
+      if (!userId) return [];
 
-      const { data, error } = await supabase.rpc('get_user_team', {
+      // Try the new get_user_teams function first
+      const { data, error } = await supabase.rpc('get_user_teams', {
         p_user_id: userId,
       });
 
-      if (error) throw error;
+      if (error) {
+        // Fallback to old get_user_team function (returns single team)
+        console.log('get_user_teams not available, falling back to get_user_team');
+        const { data: oldData, error: oldError } = await supabase.rpc('get_user_team', {
+          p_user_id: userId,
+        });
 
-      const result = data?.team;
-      if (!result || result.error) return null;
+        if (oldError) {
+          console.error('Error fetching user team:', oldError);
+          return [];
+        }
 
-      return {
-        id: result.id,
-        name: result.name,
-        nameSw: result.nameSw,
-        description: result.description,
-        descriptionSw: result.descriptionSw,
-        teamType: result.teamType,
-        leaderId: result.leaderId,
-        inviteCode: result.inviteCode,
-        avatarUrl: result.avatarUrl,
-        location: result.location,
+        const result = oldData?.team;
+        if (!result || result.error) return [];
+
+        // Return single team as array
+        return [{
+          id: result.id,
+          name: result.name,
+          nameSw: result.nameSw,
+          description: result.description,
+          descriptionSw: result.descriptionSw,
+          teamType: result.teamType,
+          leaderId: result.leaderId,
+          inviteCode: result.inviteCode,
+          avatarUrl: result.avatarUrl,
+          location: result.location,
+          isActive: true,
+          maxMembers: 50,
+          createdAt: result.createdAt,
+          userRole: result.leaderId === userId ? 'leader' : 'member',
+          stats: result.stats || {
+            totalMembers: 0,
+            totalXp: 0,
+            totalReferrals: 0,
+            lessonsCompleted: 0,
+            missionsCompleted: 0,
+            photosSubmitted: 0,
+            challengesCompleted: 0,
+          },
+          members: result.members || [],
+          achievements: result.achievements || [],
+        }];
+      }
+
+      const teams = data?.teams || [];
+      if (!Array.isArray(teams)) return [];
+
+      return teams.map((result: Record<string, unknown>) => ({
+        id: result.id as string,
+        name: result.name as string,
+        nameSw: result.nameSw as string | undefined,
+        description: result.description as string | undefined,
+        descriptionSw: result.descriptionSw as string | undefined,
+        teamType: result.teamType as TeamType,
+        leaderId: result.leaderId as string,
+        inviteCode: result.inviteCode as string,
+        avatarUrl: result.avatarUrl as string | undefined,
+        location: result.location as string | undefined,
         isActive: true,
-        maxMembers: 50,
-        createdAt: result.createdAt,
-        stats: result.stats || {
+        maxMembers: (result.maxMembers as number) || 50,
+        createdAt: result.createdAt as string,
+        userRole: result.userRole as 'leader' | 'member' | undefined,
+        joinedAt: result.joinedAt as string | undefined,
+        stats: (result.stats as TeamDetails['stats']) || {
           totalMembers: 0,
           totalXp: 0,
           totalReferrals: 0,
@@ -49,8 +101,98 @@ export function useUserTeam(userId: string | undefined) {
           photosSubmitted: 0,
           challengesCompleted: 0,
         },
-        members: result.members || [],
-        achievements: result.achievements || [],
+        members: [],
+        achievements: [],
+      }));
+    },
+    enabled: !!userId,
+  });
+}
+
+// ============================================
+// GET USER'S TEAM (SINGLE - for backwards compatibility)
+// ============================================
+
+export function useUserTeam(userId: string | undefined) {
+  return useQuery({
+    queryKey: ['userTeam', userId],
+    queryFn: async (): Promise<TeamDetails | null> => {
+      if (!userId) return null;
+
+      // Try the new function first
+      const { data, error } = await supabase.rpc('get_user_teams', {
+        p_user_id: userId,
+      });
+
+      if (error) {
+        // Fallback to old function
+        const { data: oldData, error: oldError } = await supabase.rpc('get_user_team', {
+          p_user_id: userId,
+        });
+
+        if (oldError) throw oldError;
+
+        const result = oldData?.team;
+        if (!result || result.error) return null;
+
+        return {
+          id: result.id,
+          name: result.name,
+          nameSw: result.nameSw,
+          description: result.description,
+          descriptionSw: result.descriptionSw,
+          teamType: result.teamType,
+          leaderId: result.leaderId,
+          inviteCode: result.inviteCode,
+          avatarUrl: result.avatarUrl,
+          location: result.location,
+          isActive: true,
+          maxMembers: 50,
+          createdAt: result.createdAt,
+          stats: result.stats || {
+            totalMembers: 0,
+            totalXp: 0,
+            totalReferrals: 0,
+            lessonsCompleted: 0,
+            missionsCompleted: 0,
+            photosSubmitted: 0,
+            challengesCompleted: 0,
+          },
+          members: result.members || [],
+          achievements: result.achievements || [],
+        };
+      }
+
+      const teams = data?.teams || [];
+      if (!Array.isArray(teams) || teams.length === 0) return null;
+
+      // Return the first team for backwards compatibility
+      const result = teams[0];
+      return {
+        id: result.id as string,
+        name: result.name as string,
+        nameSw: result.nameSw as string | undefined,
+        description: result.description as string | undefined,
+        descriptionSw: result.descriptionSw as string | undefined,
+        teamType: result.teamType as TeamType,
+        leaderId: result.leaderId as string,
+        inviteCode: result.inviteCode as string,
+        avatarUrl: result.avatarUrl as string | undefined,
+        location: result.location as string | undefined,
+        isActive: true,
+        maxMembers: (result.maxMembers as number) || 50,
+        createdAt: result.createdAt as string,
+        stats: (result.stats as TeamDetails['stats']) || {
+          totalMembers: 0,
+          totalXp: 0,
+          totalReferrals: 0,
+          lessonsCompleted: 0,
+          missionsCompleted: 0,
+          photosSubmitted: 0,
+          challengesCompleted: 0,
+        },
+        members: [],
+        achievements: [],
       };
     },
     enabled: !!userId,
@@ -150,6 +292,7 @@ export function useCreateTeam() {
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['userTeam', variables.userId] });
+      queryClient.invalidateQueries({ queryKey: ['userTeams', variables.userId] });
       queryClient.invalidateQueries({ queryKey: ['teamLeaderboard'] });
       queryClient.invalidateQueries({ queryKey: ['rewardsProfile', variables.userId] });
     },
@@ -186,6 +329,7 @@ export function useJoinTeam() {
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['userTeam', variables.userId] });
+      queryClient.invalidateQueries({ queryKey: ['userTeams', variables.userId] });
       queryClient.invalidateQueries({ queryKey: ['teamLeaderboard'] });
       queryClient.invalidateQueries({ queryKey: ['rewardsProfile', variables.userId] });
     },
@@ -219,6 +363,7 @@ export function useLeaveTeam() {
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['userTeam', variables.userId] });
+      queryClient.invalidateQueries({ queryKey: ['userTeams', variables.userId] });
       queryClient.invalidateQueries({ queryKey: ['teamDetails', variables.teamId] });
       queryClient.invalidateQueries({ queryKey: ['teamLeaderboard'] });
     },
