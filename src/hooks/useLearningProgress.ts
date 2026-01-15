@@ -370,43 +370,76 @@ export function useMarkArticleComplete() {
 
   return useMutation({
     mutationFn: async ({ userId, articleId }: { userId: string; articleId: string }) => {
+      // Try using the new RPC function first (handles everything server-side)
+      const { data: rpcResult, error: rpcError } = await supabase.rpc('mark_article_complete', {
+        p_user_id: userId,
+        p_article_id: articleId,
+      });
+
+      // If RPC succeeded, return the result
+      if (!rpcError && rpcResult?.success) {
+        return toCamelCase(rpcResult.article_progress) as ArticleProgress;
+      }
+
+      // Fallback: If RPC doesn't exist or failed, do it directly
+      console.warn('RPC mark_article_complete failed or not available, using fallback:', rpcError);
+
+      const now = new Date().toISOString();
+
+      // Use upsert for simplicity
       const { data, error } = await supabase
         .from('article_progress')
         .upsert(
           {
             user_id: userId,
             article_id: articleId,
+            reading_time_seconds: 0,
             scroll_percentage: 100,
             completed: true,
-            completed_at: new Date().toISOString(),
-            last_read_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
+            completed_at: now,
+            last_read_at: now,
+            updated_at: now,
           },
           { onConflict: 'user_id,article_id' }
         )
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error saving article progress:', error);
+        throw error;
+      }
 
-      // Award XP
-      await supabase.rpc('award_xp', {
-        p_user_id: userId,
-        p_action: 'Article Completed',
-        p_action_sw: 'Makala Imekamilika',
-        p_xp_amount: 20,
-        p_metadata: { article_id: articleId }
-      });
+      // Try to award XP (don't fail if this fails)
+      try {
+        await supabase.rpc('award_xp', {
+          p_user_id: userId,
+          p_action: 'Article Completed',
+          p_action_sw: 'Makala Imekamilika',
+          p_xp_amount: 20,
+          p_metadata: { article_id: articleId }
+        });
+      } catch (xpError) {
+        console.warn('Failed to award XP:', xpError);
+      }
 
-      // Increment stat and check achievements
-      await supabase.rpc('increment_stat_and_check_achievements', {
-        p_user_id: userId,
-        p_stat_field: 'articles_completed',
-        p_increment: 1
-      });
+      // Try to increment stat (don't fail if this fails)
+      try {
+        await supabase.rpc('increment_stat_and_check_achievements', {
+          p_user_id: userId,
+          p_stat_field: 'articles_completed',
+          p_increment: 1
+        });
+      } catch (statError) {
+        console.warn('Failed to increment stat:', statError);
+      }
 
-      // Update weekly challenge progress (target_action: 'complete_lesson')
-      await updateLearningChallengeProgress(userId);
+      // Try to update weekly challenge progress (don't fail if this fails)
+      try {
+        await updateLearningChallengeProgress(userId);
+      } catch (challengeError) {
+        console.warn('Failed to update challenge progress:', challengeError);
+      }
 
       return toCamelCase(data) as ArticleProgress;
     },

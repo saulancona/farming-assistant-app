@@ -2,13 +2,16 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import toast from 'react-hot-toast';
-import { BookOpen, Heart, Bookmark, Eye, ArrowLeft, Loader, Search, Sprout, Bug, Droplets, Wheat, TrendingUp, Video } from 'lucide-react';
+import { BookOpen, Heart, Bookmark, Eye, ArrowLeft, Loader, Search, Sprout, Bug, Droplets, Wheat, TrendingUp, Video, CheckCircle, Star, HelpCircle } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import type { KnowledgeArticle, LearningVideo } from '../types';
 import TalkingButton from './TalkingButton';
 import ReadButton from './ReadButton';
 import { useAuth } from '../contexts/AuthContext';
 import VideoPlayer, { VideoCard } from './learning/VideoPlayer';
+import ArticleQuiz from './learning/ArticleQuiz';
+import { useArticleProgress, useMarkArticleComplete } from '../hooks/useLearningProgress';
+import { findQuizForArticle } from '../data/articleQuizzes';
 import {
   getKnowledgeArticles,
   getKnowledgeArticle,
@@ -129,13 +132,143 @@ const sampleVideos: LearningVideo[] = [
     likes: 48,
     createdAt: new Date().toISOString(),
     tags: ['marketing', 'sales', 'business']
+  },
+  // NEW EDUCATIONAL CONTENT - Article-style learning modules with rich content
+  // These are displayed as interactive learning content with detailed guides
+  {
+    id: 'v7',
+    title: 'Proper Crop Planting: Spacing, Watering & Seed Depth',
+    description: `Master the fundamentals of crop planting with this comprehensive guide!
+
+SPACING GUIDELINES:
+• Maize: 75cm between rows, 25cm between plants (5cm depth)
+• Beans: 45cm between rows, 15cm between plants (3-5cm depth)
+• Tomatoes: 60cm between rows, 45cm between plants
+• Cabbage: 60cm x 45cm spacing
+• Onions: 30cm between rows, 10cm between plants
+• Carrots: 30cm between rows, 5cm between plants (1cm depth)
+
+WATERING TIPS:
+• Water early morning or late evening to reduce evaporation
+• Seedlings need daily watering for first 2 weeks
+• Established plants: 2-3 times per week depending on weather
+• Check soil moisture 5cm deep before watering
+
+WHY SPACING MATTERS:
+• Prevents disease spread between plants
+• Improves air circulation
+• Reduces competition for nutrients
+• Makes weeding and harvesting easier
+• Maximizes yields per acre`,
+    category: 'planting',
+    videoUrl: 'https://www.youtube.com/embed/fSGMPJ6Jyfw',
+    thumbnailUrl: 'https://images.unsplash.com/photo-1523348837708-15d4a09cfac2?w=400',
+    duration: '18:45',
+    durationSeconds: 1125,
+    instructor: 'AgroAfrica Learning',
+    crops: ['maize', 'beans', 'tomatoes', 'cabbage', 'onions', 'carrots'],
+    language: 'en',
+    difficulty: 'beginner',
+    views: 3250,
+    likes: 245,
+    createdAt: new Date().toISOString(),
+    tags: ['planting', 'spacing', 'seed depth', 'watering', 'fundamentals', 'beginner guide']
+  },
+  {
+    id: 'v8',
+    title: 'When to Plant: Understanding Seasons & Timing',
+    description: `Timing is everything in farming! Learn when to plant for maximum success.
+
+EAST AFRICA PLANTING SEASONS:
+
+LONG RAINS (March - May):
+• Best for: Maize, beans, sorghum, millet
+• Prepare land 2-3 weeks before rains
+• Plant when soil is moist but not waterlogged
+
+SHORT RAINS (October - December):
+• Good for: Quick-maturing varieties, vegetables
+• Lower yields expected, plan accordingly
+• Use drought-tolerant varieties
+
+CROP-SPECIFIC TIMING:
+• Maize: Plant at onset of rains (March-April or Oct-Nov)
+• Beans: Can be planted in both seasons
+• Tomatoes: Year-round with irrigation
+• Potatoes: Cool highlands, plant March or September
+
+PLANNING YOUR CALENDAR:
+1. Check local weather forecasts
+2. Prepare land before rains arrive
+3. Have seeds and fertilizer ready
+4. Plant within 2 weeks of first good rains
+5. Stagger planting for continuous harvest`,
+    category: 'planting',
+    videoUrl: 'https://www.youtube.com/embed/O5yUU2RRDYI',
+    thumbnailUrl: 'https://images.unsplash.com/photo-1625246333195-78d9c38ad449?w=400',
+    duration: '16:20',
+    durationSeconds: 980,
+    instructor: 'AgroAfrica Learning',
+    crops: ['maize', 'sorghum', 'millet', 'beans', 'cowpeas', 'groundnuts'],
+    language: 'en',
+    difficulty: 'beginner',
+    views: 2890,
+    likes: 198,
+    createdAt: new Date().toISOString(),
+    tags: ['seasons', 'timing', 'rain patterns', 'drought', 'planting calendar', 'weather']
+  },
+  {
+    id: 'v9',
+    title: 'Best Farming Practices for Maximum Yields',
+    description: `Transform your farm productivity with these proven practices!
+
+SOIL PREPARATION:
+• Test soil pH (ideal: 6.0-7.0 for most crops)
+• Add organic matter (compost, manure)
+• Plough to 20cm depth, 2-3 weeks before planting
+• Remove weeds and crop residues
+
+CROP ROTATION (4-Year Plan):
+Year 1: Maize (heavy feeder)
+Year 2: Beans/legumes (nitrogen fixer)
+Year 3: Root crops (carrots, potatoes)
+Year 4: Leafy vegetables, then rest
+
+INTERCROPPING BENEFITS:
+• Maize + Beans: Classic combo, beans fix nitrogen
+• Maize + Pumpkin: Ground cover reduces weeds
+• Tomatoes + Onions: Pest deterrent effect
+
+FERTILIZER APPLICATION:
+• DAP at planting: 50kg/acre
+• Top dress with CAN at knee-high: 50kg/acre
+• Apply organic fertilizer for long-term soil health
+
+RECORD KEEPING:
+• Track inputs and costs
+• Record yields per field
+• Note weather conditions
+• Calculate profit/loss per crop`,
+    category: 'general',
+    videoUrl: 'https://www.youtube.com/embed/fB8C1pqGLic',
+    thumbnailUrl: 'https://images.unsplash.com/photo-1574943320219-553eb213f72d?w=400',
+    duration: '22:15',
+    durationSeconds: 1335,
+    instructor: 'AgroAfrica Learning',
+    crops: ['maize', 'beans', 'vegetables', 'fruits', 'cereals'],
+    language: 'en',
+    difficulty: 'intermediate',
+    views: 4120,
+    likes: 312,
+    createdAt: new Date().toISOString(),
+    tags: ['best practices', 'soil preparation', 'crop rotation', 'composting', 'fertilizer', 'yields', 'sustainable farming']
   }
 ];
 
 type ContentTab = 'articles' | 'videos';
 
 export default function Knowledge() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { user } = useAuth();
   const [contentTab, setContentTab] = useState<ContentTab>('articles');
   const [articles, setArticles] = useState<KnowledgeArticle[]>([]);
@@ -145,6 +278,75 @@ export default function Knowledge() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [videos] = useState<LearningVideo[]>(sampleVideos);
+  const [showQuiz, setShowQuiz] = useState(false);
+  const [currentQuiz, setCurrentQuiz] = useState<ReturnType<typeof findQuizForArticle>>(null);
+
+  const isSwahili = i18n.language === 'sw';
+
+  // Article progress tracking
+  const { data: articleProgressList } = useArticleProgress(user?.id);
+  const markArticleComplete = useMarkArticleComplete();
+
+  // Check if an article is completed
+  const isArticleCompleted = (articleId: string): boolean => {
+    if (!articleProgressList || !Array.isArray(articleProgressList)) return false;
+    const progress = articleProgressList.find((p: { articleId: string; completed: boolean }) => p.articleId === articleId);
+    return progress?.completed || false;
+  };
+
+  // Start the quiz for the current article
+  const handleStartQuiz = () => {
+    if (!selectedArticle) return;
+    const quiz = findQuizForArticle(selectedArticle.title, selectedArticle.category);
+    if (quiz) {
+      setCurrentQuiz(quiz);
+      setShowQuiz(true);
+    } else {
+      // If no quiz found, allow direct completion (fallback)
+      handleMarkComplete(selectedArticle.id);
+    }
+  };
+
+  // Handle quiz completion
+  const handleQuizComplete = async (passed: boolean, score: number) => {
+    if (passed && selectedArticle && user) {
+      try {
+        await markArticleComplete.mutateAsync({
+          userId: user.id,
+          articleId: selectedArticle.id,
+        });
+        toast.success(
+          isSwahili
+            ? `Hongera! Umepata ${score}/4. Makala imekamilika! +20 XP`
+            : `Congratulations! You scored ${score}/4. Article completed! +20 XP`
+        );
+      } catch (error) {
+        console.error('Error marking article complete:', error);
+        toast.error(t('common.error', 'Failed to mark as complete'));
+      }
+    }
+    setShowQuiz(false);
+    setCurrentQuiz(null);
+  };
+
+  // Handle marking article as complete (direct - for legacy or no quiz)
+  const handleMarkComplete = async (articleId: string) => {
+    if (!user) {
+      toast.error(t('common.signInRequired', 'Please sign in to track progress'));
+      return;
+    }
+
+    try {
+      await markArticleComplete.mutateAsync({
+        userId: user.id,
+        articleId,
+      });
+      toast.success(t('knowledge.articleCompleted', 'Article completed! +20 XP'));
+    } catch (error) {
+      console.error('Error marking article complete:', error);
+      toast.error(t('common.error', 'Failed to mark as complete'));
+    }
+  };
 
   const categories = [
     { id: 'all', label: t('knowledge.all', 'All Topics'), icon: BookOpen },
@@ -436,34 +638,87 @@ export default function Knowledge() {
           </div>
 
           {/* Actions Footer */}
-          <div className="p-6 bg-gray-50 border-t border-gray-200 flex gap-3">
-            <TalkingButton
-              voiceLabel={selectedArticle.isLiked ? 'Unlike article' : 'Like article'}
-              onClick={() => handleLike(selectedArticle.id)}
-              className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg font-medium transition-colors ${
-                selectedArticle.isLiked
-                  ? 'bg-red-50 text-red-600 hover:bg-red-100'
-                  : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-300'
-              }`}
-            >
-              <Heart size={20} className={selectedArticle.isLiked ? 'fill-current' : ''} />
-              {selectedArticle.isLiked ? t('knowledge.liked', 'Liked') : t('knowledge.like', 'Like')}
-            </TalkingButton>
+          <div className="p-6 bg-gray-50 border-t border-gray-200 space-y-3">
+            {/* Quiz / Mark as Completed Button */}
+            {isArticleCompleted(selectedArticle.id) ? (
+              <div className="flex items-center justify-center gap-2 px-4 py-3 bg-green-100 text-green-700 rounded-lg font-medium">
+                <CheckCircle size={20} className="fill-green-500 text-white" />
+                {t('knowledge.completed', 'Completed')}
+                <span className="ml-2 flex items-center gap-1 text-sm">
+                  <Star size={14} className="fill-yellow-400 text-yellow-400" /> +20 XP
+                </span>
+              </div>
+            ) : (
+              <TalkingButton
+                voiceLabel={isSwahili ? 'Fanya jaribio ili kukamilisha' : 'Take quiz to complete'}
+                onClick={handleStartQuiz}
+                disabled={markArticleComplete.isPending}
+                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition-colors disabled:opacity-50"
+              >
+                <HelpCircle size={20} />
+                {markArticleComplete.isPending
+                  ? t('common.loading', 'Loading...')
+                  : (isSwahili ? 'Fanya Jaribio ili Kukamilisha' : 'Take Quiz to Complete')}
+                <span className="ml-2 flex items-center gap-1 text-sm opacity-80">
+                  <Star size={14} /> +20 XP
+                </span>
+              </TalkingButton>
+            )}
 
-            <TalkingButton
-              voiceLabel={selectedArticle.isBookmarked ? 'Remove bookmark' : 'Bookmark article'}
-              onClick={() => handleBookmark(selectedArticle.id)}
-              className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg font-medium transition-colors ${
-                selectedArticle.isBookmarked
-                  ? 'bg-yellow-50 text-yellow-600 hover:bg-yellow-100'
-                  : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-300'
-              }`}
-            >
-              <Bookmark size={20} className={selectedArticle.isBookmarked ? 'fill-current' : ''} />
-              {selectedArticle.isBookmarked ? t('knowledge.bookmarked', 'Bookmarked') : t('knowledge.bookmark', 'Bookmark')}
-            </TalkingButton>
+            {/* Quiz info */}
+            {!isArticleCompleted(selectedArticle.id) && (
+              <p className="text-center text-sm text-gray-500">
+                {isSwahili
+                  ? 'Jibu maswali 4 (angalau 3 sahihi ili kupita)'
+                  : 'Answer 4 questions (at least 3 correct to pass)'}
+              </p>
+            )}
+
+            {/* Like and Bookmark Buttons */}
+            <div className="flex gap-3">
+              <TalkingButton
+                voiceLabel={selectedArticle.isLiked ? 'Unlike article' : 'Like article'}
+                onClick={() => handleLike(selectedArticle.id)}
+                className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg font-medium transition-colors ${
+                  selectedArticle.isLiked
+                    ? 'bg-red-50 text-red-600 hover:bg-red-100'
+                    : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-300'
+                }`}
+              >
+                <Heart size={20} className={selectedArticle.isLiked ? 'fill-current' : ''} />
+                {selectedArticle.isLiked ? t('knowledge.liked', 'Liked') : t('knowledge.like', 'Like')}
+              </TalkingButton>
+
+              <TalkingButton
+                voiceLabel={selectedArticle.isBookmarked ? 'Remove bookmark' : 'Bookmark article'}
+                onClick={() => handleBookmark(selectedArticle.id)}
+                className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg font-medium transition-colors ${
+                  selectedArticle.isBookmarked
+                    ? 'bg-yellow-50 text-yellow-600 hover:bg-yellow-100'
+                    : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-300'
+                }`}
+              >
+                <Bookmark size={20} className={selectedArticle.isBookmarked ? 'fill-current' : ''} />
+                {selectedArticle.isBookmarked ? t('knowledge.bookmarked', 'Bookmarked') : t('knowledge.bookmark', 'Bookmark')}
+              </TalkingButton>
+            </div>
           </div>
         </motion.div>
+
+        {/* Quiz Modal */}
+        {showQuiz && currentQuiz && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <ArticleQuiz
+              quiz={currentQuiz}
+              onComplete={handleQuizComplete}
+              onClose={() => {
+                setShowQuiz(false);
+                setCurrentQuiz(null);
+              }}
+              isSwahili={isSwahili}
+            />
+          </div>
+        )}
       </div>
     );
   }
@@ -605,9 +860,16 @@ export default function Knowledge() {
 
                     <div className="flex items-center justify-between text-xs text-gray-500">
                       <span>{article.author}</span>
-                      {article.isBookmarked && (
-                        <Bookmark size={14} className="fill-yellow-500 text-yellow-500" />
-                      )}
+                      <div className="flex items-center gap-2">
+                        {isArticleCompleted(article.id) && (
+                          <span className="flex items-center gap-1 text-green-600">
+                            <CheckCircle size={14} className="fill-green-500 text-white" />
+                          </span>
+                        )}
+                        {article.isBookmarked && (
+                          <Bookmark size={14} className="fill-yellow-500 text-yellow-500" />
+                        )}
+                      </div>
                     </div>
                   </div>
                 </TalkingButton>
