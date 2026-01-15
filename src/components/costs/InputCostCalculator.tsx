@@ -41,9 +41,11 @@ import {
   getCategoryInfo,
   formatCurrency,
 } from '../../hooks/useInputCosts';
-import type { InputCost, InputCostCategory, Field } from '../../types';
+import type { InputCost, InputCostCategory, Field, Expense } from '../../types';
 import { getFields } from '../../services/database';
 import { useQuery } from '@tanstack/react-query';
+import { useExpenses } from '../../hooks/useSupabaseData';
+import { useAuth } from '../../contexts/AuthContext';
 
 interface InputCostCalculatorProps {
   userId?: string;
@@ -54,6 +56,7 @@ export default function InputCostCalculator({ initialFieldId }: InputCostCalcula
   const { i18n } = useTranslation();
   const isSwahili = i18n.language === 'sw';
   const { setActiveTab: navigateToTab } = useUIStore();
+  const { user } = useAuth();
 
   // State
   const [activeTab, setActiveTab] = useState<'costs' | 'summary' | 'projection' | 'tips'>('costs');
@@ -90,6 +93,9 @@ export default function InputCostCalculator({ initialFieldId }: InputCostCalcula
     ...dateFilters,
   });
 
+  // Fetch manual expenses to show unified view
+  const { data: expenses = [] } = useExpenses(user?.id);
+
   const { data: summary, isLoading: summaryLoading } = useInputCostSummary({
     fieldId: selectedFieldId,
     ...dateFilters,
@@ -103,6 +109,77 @@ export default function InputCostCalculator({ initialFieldId }: InputCostCalcula
 
   // Selected field info
   const selectedField = fields?.find(f => f.id === selectedFieldId);
+
+  // Map expense categories to input cost categories
+  const expenseCategoryToInputCost: Record<string, InputCostCategory> = {
+    seeds: 'seed',
+    fertilizer: 'fertilizer',
+    pesticide: 'pesticide',
+    labor: 'labor',
+    fuel: 'transport',
+    equipment: 'equipment',
+    other: 'other',
+  };
+
+  // Convert manual expenses to input cost format for unified display
+  // Only include expenses that are NOT already synced from input costs
+  const manualExpensesAsInputCosts = useMemo(() => {
+    return expenses
+      .filter((e: Expense) => !e.sourceInputCostId && !e.description?.startsWith('[Input Cost]'))
+      .filter((e: Expense) => {
+        // Apply field filter
+        if (selectedFieldId && e.fieldId !== selectedFieldId) return false;
+        // Apply category filter
+        if (categoryFilter) {
+          const mappedCategory = expenseCategoryToInputCost[e.category];
+          if (mappedCategory !== categoryFilter) return false;
+        }
+        // Apply date filter
+        if (dateFilters.startDate && e.date < dateFilters.startDate) return false;
+        return true;
+      })
+      .map((e: Expense) => ({
+        id: `exp_${e.id}`,
+        userId: user?.id || '',
+        fieldId: e.fieldId,
+        category: expenseCategoryToInputCost[e.category] || 'other',
+        itemName: e.description,
+        totalAmount: e.amount,
+        purchaseDate: e.date,
+        supplier: e.supplier,
+        fieldName: e.fieldName,
+        createdAt: e.date,
+        // Mark as manual expense
+        isManualExpense: true,
+        originalExpenseId: e.id,
+      }));
+  }, [expenses, selectedFieldId, categoryFilter, dateFilters, user?.id]);
+
+  // Combine input costs and manual expenses for unified view
+  const unifiedCosts = useMemo(() => {
+    const allCosts = [
+      ...(costs || []).map(c => ({ ...c, isManualExpense: false })),
+      ...manualExpensesAsInputCosts,
+    ];
+    // Sort by date descending
+    return allCosts.sort((a, b) =>
+      new Date(b.purchaseDate).getTime() - new Date(a.purchaseDate).getTime()
+    );
+  }, [costs, manualExpensesAsInputCosts]);
+
+  // Calculate unified summary
+  const unifiedSummary = useMemo(() => {
+    const manualTotal = manualExpensesAsInputCosts.reduce((sum, e) => sum + e.totalAmount, 0);
+    const inputCostTotal = summary?.totalCost || 0;
+    return {
+      ...summary,
+      totalCost: inputCostTotal + manualTotal,
+      manualExpensesTotal: manualTotal,
+      inputCostsTotal: inputCostTotal,
+      manualExpensesCount: manualExpensesAsInputCosts.length,
+      inputCostsCount: costs?.length || 0,
+    };
+  }, [summary, manualExpensesAsInputCosts, costs]);
 
   return (
     <div className="space-y-4 pb-6">
@@ -152,7 +229,7 @@ export default function InputCostCalculator({ initialFieldId }: InputCostCalcula
               {isSwahili ? 'Jumla ya Gharama' : 'Total Costs'}
             </p>
             <p className="text-lg font-bold">
-              {formatCurrency(summary?.totalCost || 0)}
+              {formatCurrency(unifiedSummary?.totalCost || 0)}
             </p>
           </div>
           <div className="bg-white/10 rounded-xl p-3">
@@ -168,13 +245,13 @@ export default function InputCostCalculator({ initialFieldId }: InputCostCalcula
               {isSwahili ? 'Vitu' : 'Items'}
             </p>
             <p className="text-lg font-bold">
-              {costs?.length || 0}
+              {unifiedCosts?.length || 0}
             </p>
           </div>
         </div>
       </motion.div>
 
-      {/* Sync Info Banner */}
+      {/* Unified View Info Banner */}
       <motion.div
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
@@ -187,12 +264,12 @@ export default function InputCostCalculator({ initialFieldId }: InputCostCalcula
             </div>
             <div>
               <p className="text-sm font-medium text-blue-800 dark:text-blue-200">
-                {isSwahili ? 'Imeunganishwa na Gharama' : 'Synced with Expenses'}
+                {isSwahili ? 'Mtazamo wa Pamoja' : 'Unified View'}
               </p>
               <p className="text-xs text-blue-600 dark:text-blue-400">
                 {isSwahili
-                  ? 'Gharama zote zinaonyeshwa katika ukurasa wa Gharama'
-                  : 'All input costs automatically appear in Expense Tracker'}
+                  ? `Inaonyesha ${unifiedSummary.inputCostsCount} gharama za pembejeo + ${unifiedSummary.manualExpensesCount} gharama za mwongozo`
+                  : `Showing ${unifiedSummary.inputCostsCount} input costs + ${unifiedSummary.manualExpensesCount} manual expenses`}
               </p>
             </div>
           </div>
@@ -271,17 +348,18 @@ export default function InputCostCalculator({ initialFieldId }: InputCostCalcula
       <AnimatePresence mode="wait">
         {activeTab === 'costs' && (
           <CostsTab
-            costs={costs || []}
+            costs={unifiedCosts}
             isLoading={costsLoading}
             isSwahili={isSwahili}
             onEdit={(cost) => setEditingCost(cost)}
             onAdd={() => setShowAddModal(true)}
+            onNavigateToExpenses={() => navigateToTab('expenses')}
           />
         )}
 
         {activeTab === 'summary' && (
           <SummaryTab
-            summary={summary}
+            summary={unifiedSummary}
             isLoading={summaryLoading}
             isSwahili={isSwahili}
           />
@@ -324,15 +402,28 @@ export default function InputCostCalculator({ initialFieldId }: InputCostCalcula
 // COSTS TAB
 // ============================================
 
+// Extended type to include manual expenses converted to input cost format
+interface UnifiedCostItem extends Partial<InputCost> {
+  id: string;
+  category: InputCostCategory;
+  itemName: string;
+  totalAmount: number;
+  purchaseDate: string;
+  fieldName?: string;
+  isManualExpense?: boolean;
+  originalExpenseId?: string;
+}
+
 interface CostsTabProps {
-  costs: InputCost[];
+  costs: UnifiedCostItem[];
   isLoading: boolean;
   isSwahili: boolean;
   onEdit: (cost: InputCost) => void;
   onAdd: () => void;
+  onNavigateToExpenses: () => void;
 }
 
-function CostsTab({ costs, isLoading, isSwahili, onEdit, onAdd }: CostsTabProps) {
+function CostsTab({ costs, isLoading, isSwahili, onEdit, onAdd, onNavigateToExpenses }: CostsTabProps) {
   const deleteMutation = useDeleteInputCost();
 
   if (isLoading) {
@@ -382,12 +473,13 @@ function CostsTab({ costs, isLoading, isSwahili, onEdit, onAdd }: CostsTabProps)
     >
       {costs.map((cost) => {
         const catInfo = getCategoryInfo(cost.category);
+        const isManual = cost.isManualExpense;
         return (
           <motion.div
             key={cost.id}
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="bg-white dark:bg-gray-800 rounded-xl p-4 shadow-sm border border-gray-100 dark:border-gray-700"
+            className={`bg-white dark:bg-gray-800 rounded-xl p-4 shadow-sm border ${isManual ? 'border-amber-200 dark:border-amber-800' : 'border-gray-100 dark:border-gray-700'}`}
           >
             <div className="flex items-start justify-between">
               <div className="flex items-start gap-3">
@@ -401,13 +493,18 @@ function CostsTab({ costs, isLoading, isSwahili, onEdit, onAdd }: CostsTabProps)
                   <h4 className="font-medium text-gray-900 dark:text-white">
                     {cost.itemName}
                   </h4>
-                  <div className="flex items-center gap-2 text-sm text-gray-500">
+                  <div className="flex items-center gap-2 text-sm text-gray-500 flex-wrap">
                     <span
                       className="px-2 py-0.5 rounded-full text-xs"
                       style={{ backgroundColor: `${catInfo.color}20`, color: catInfo.color }}
                     >
                       {isSwahili ? catInfo.labelSw : catInfo.label}
                     </span>
+                    {isManual && (
+                      <span className="px-2 py-0.5 rounded-full text-xs bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                        {isSwahili ? 'Gharama ya Mwongozo' : 'Manual Expense'}
+                      </span>
+                    )}
                     {cost.fieldName && (
                       <span className="flex items-center gap-1">
                         <MapPin className="w-3 h-3" />
@@ -431,22 +528,34 @@ function CostsTab({ costs, isLoading, isSwahili, onEdit, onAdd }: CostsTabProps)
                   {new Date(cost.purchaseDate).toLocaleDateString()}
                 </p>
                 <div className="flex items-center gap-1 mt-2">
-                  <button
-                    onClick={() => onEdit(cost)}
-                    className="p-1.5 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
-                  >
-                    <Edit2 className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => {
-                      if (confirm(isSwahili ? 'Una uhakika?' : 'Are you sure?')) {
-                        deleteMutation.mutate(cost.id);
-                      }
-                    }}
-                    className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  {isManual ? (
+                    <button
+                      onClick={onNavigateToExpenses}
+                      className="p-1.5 text-amber-500 hover:text-amber-700 hover:bg-amber-50 rounded-lg transition-colors"
+                      title={isSwahili ? 'Hariri katika Gharama' : 'Edit in Expenses'}
+                    >
+                      <FileText className="w-4 h-4" />
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => onEdit(cost as InputCost)}
+                        className="p-1.5 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                      >
+                        <Edit2 className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (confirm(isSwahili ? 'Una uhakika?' : 'Are you sure?')) {
+                            deleteMutation.mutate(cost.id);
+                          }
+                        }}
+                        className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
@@ -464,10 +573,15 @@ function CostsTab({ costs, isLoading, isSwahili, onEdit, onAdd }: CostsTabProps)
 interface SummaryTabProps {
   summary?: {
     totalCost: number;
-    costPerAcre: number;
-    byCategory: { category: InputCostCategory; total: number; percentage: number; itemCount: number }[];
-    byMonth: { month: string; total: number }[];
-    topExpenses: { itemName: string; category: InputCostCategory; totalAmount: number }[];
+    costPerAcre?: number;
+    byCategory?: { category: InputCostCategory; total: number; percentage: number; itemCount: number }[];
+    byMonth?: { month: string; total: number }[];
+    topExpenses?: { itemName: string; category: InputCostCategory; totalAmount: number }[];
+    // Unified summary fields
+    manualExpensesTotal?: number;
+    inputCostsTotal?: number;
+    manualExpensesCount?: number;
+    inputCostsCount?: number;
   };
   isLoading: boolean;
   isSwahili: boolean;
@@ -498,49 +612,52 @@ function SummaryTab({ summary, isLoading, isSwahili }: SummaryTabProps) {
       className="space-y-4"
     >
       {/* Category Breakdown */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl p-4 shadow-sm border border-gray-100 dark:border-gray-700">
-        <h3 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-          <PieChart className="w-5 h-5 text-emerald-500" />
-          {isSwahili ? 'Mgawanyo wa Gharama' : 'Cost Breakdown'}
-        </h3>
-        <div className="space-y-3">
-          {summary.byCategory.map((cat) => {
-            const catInfo = getCategoryInfo(cat.category);
-            return (
-              <div key={cat.category}>
-                <div className="flex items-center justify-between mb-1">
-                  <div className="flex items-center gap-2">
-                    <span>{catInfo.icon}</span>
-                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                      {isSwahili ? catInfo.labelSw : catInfo.label}
-                    </span>
+      {/* Cost Breakdown by Category */}
+      {summary.byCategory && summary.byCategory.length > 0 && (
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-4 shadow-sm border border-gray-100 dark:border-gray-700">
+          <h3 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+            <PieChart className="w-5 h-5 text-emerald-500" />
+            {isSwahili ? 'Mgawanyo wa Gharama' : 'Cost Breakdown'}
+          </h3>
+          <div className="space-y-3">
+            {summary.byCategory.map((cat) => {
+              const catInfo = getCategoryInfo(cat.category);
+              return (
+                <div key={cat.category}>
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-2">
+                      <span>{catInfo.icon}</span>
+                      <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                        {isSwahili ? catInfo.labelSw : catInfo.label}
+                      </span>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-sm font-semibold text-gray-900 dark:text-white">
+                        {formatCurrency(cat.total)}
+                      </span>
+                      <span className="text-xs text-gray-500 ml-2">
+                        ({cat.percentage.toFixed(1)}%)
+                      </span>
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <span className="text-sm font-semibold text-gray-900 dark:text-white">
-                      {formatCurrency(cat.total)}
-                    </span>
-                    <span className="text-xs text-gray-500 ml-2">
-                      ({cat.percentage.toFixed(1)}%)
-                    </span>
+                  <div className="h-2 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+                    <div
+                      className="h-full rounded-full transition-all duration-500"
+                      style={{
+                        width: `${cat.percentage}%`,
+                        backgroundColor: catInfo.color,
+                      }}
+                    />
                   </div>
                 </div>
-                <div className="h-2 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
-                  <div
-                    className="h-full rounded-full transition-all duration-500"
-                    style={{
-                      width: `${cat.percentage}%`,
-                      backgroundColor: catInfo.color,
-                    }}
-                  />
-                </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Top Expenses */}
-      {summary.topExpenses.length > 0 && (
+      {summary.topExpenses && summary.topExpenses.length > 0 && (
         <div className="bg-white dark:bg-gray-800 rounded-xl p-4 shadow-sm border border-gray-100 dark:border-gray-700">
           <h3 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
             <BarChart3 className="w-5 h-5 text-emerald-500" />
@@ -572,7 +689,7 @@ function SummaryTab({ summary, isLoading, isSwahili }: SummaryTabProps) {
       )}
 
       {/* Monthly Trend */}
-      {summary.byMonth.length > 0 && (
+      {summary.byMonth && summary.byMonth.length > 0 && (
         <div className="bg-white dark:bg-gray-800 rounded-xl p-4 shadow-sm border border-gray-100 dark:border-gray-700">
           <h3 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
             <Calendar className="w-5 h-5 text-emerald-500" />
@@ -580,7 +697,7 @@ function SummaryTab({ summary, isLoading, isSwahili }: SummaryTabProps) {
           </h3>
           <div className="flex items-end gap-2 h-32">
             {summary.byMonth.slice(-6).map((month, index) => {
-              const maxTotal = Math.max(...summary.byMonth.map(m => m.total));
+              const maxTotal = Math.max(...(summary.byMonth || []).map(m => m.total));
               const height = maxTotal > 0 ? (month.total / maxTotal) * 100 : 0;
               return (
                 <div key={index} className="flex-1 flex flex-col items-center gap-1">
