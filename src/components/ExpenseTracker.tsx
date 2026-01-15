@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Edit2, Trash2, DollarSign, Calendar, Tag, X, TrendingUp, ChevronDown, Download, Calculator, Link2 } from 'lucide-react';
+import { Plus, Edit2, Trash2, DollarSign, Calendar, Tag, X, TrendingUp, ChevronDown, Download, Calculator, Link2, MapPin, Filter } from 'lucide-react';
 import { format } from 'date-fns';
 import { useTranslation } from 'react-i18next';
 import type { Expense, Field } from '../types';
@@ -34,6 +34,10 @@ export default function ExpenseTracker({ expenses, fields, userId, onAddExpense,
     fieldIds: [],
   });
   const [showFieldDropdown, setShowFieldDropdown] = useState(false);
+
+  // Filter state
+  const [selectedFieldFilter, setSelectedFieldFilter] = useState<string>('');
+  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<Expense['category'] | ''>('');
 
   const handleOpenModal = (expense?: Expense) => {
     if (expense) {
@@ -150,16 +154,40 @@ export default function ExpenseTracker({ expenses, fields, userId, onAddExpense,
     return <Tag size={16} />;
   };
 
-  const totalExpenses = expenses.reduce((sum, expense) => sum + expense.amount, 0);
+  // Filter expenses based on selected filters
+  const filteredExpenses = useMemo(() => {
+    return expenses.filter(expense => {
+      // Field filter
+      if (selectedFieldFilter && expense.fieldId !== selectedFieldFilter) {
+        return false;
+      }
+      // Category filter
+      if (selectedCategoryFilter && expense.category !== selectedCategoryFilter) {
+        return false;
+      }
+      return true;
+    });
+  }, [expenses, selectedFieldFilter, selectedCategoryFilter]);
 
-  const categoryTotals = expenses.reduce((acc, expense) => {
+  const totalExpenses = filteredExpenses.reduce((sum, expense) => sum + expense.amount, 0);
+
+  const categoryTotals = filteredExpenses.reduce((acc, expense) => {
     acc[expense.category] = (acc[expense.category] || 0) + expense.amount;
     return acc;
   }, {} as Record<string, number>);
 
-  const sortedExpenses = [...expenses].sort((a, b) =>
+  const sortedExpenses = [...filteredExpenses].sort((a, b) =>
     new Date(b.date).getTime() - new Date(a.date).getTime()
   );
+
+  // Check if any filters are active
+  const hasActiveFilters = selectedFieldFilter || selectedCategoryFilter;
+
+  // Clear all filters
+  const clearFilters = () => {
+    setSelectedFieldFilter('');
+    setSelectedCategoryFilter('');
+  };
 
   const exportToCSV = () => {
     if (expenses.length === 0) return;
@@ -194,9 +222,9 @@ export default function ExpenseTracker({ expenses, fields, userId, onAddExpense,
     return !!(expense.sourceInputCostId || expense.sourceType === 'input_cost' || expense.description?.startsWith('[Input Cost]'));
   };
 
-  // Count expenses by source
-  const manualExpenses = expenses.filter(e => !isFromInputCost(e));
-  const inputCostExpenses = expenses.filter(e => isFromInputCost(e));
+  // Count expenses by source (from filtered list)
+  const manualExpenses = filteredExpenses.filter(e => !isFromInputCost(e));
+  const inputCostExpenses = filteredExpenses.filter(e => isFromInputCost(e));
 
   return (
     <div className="space-y-6">
@@ -267,6 +295,77 @@ export default function ExpenseTracker({ expenses, fields, userId, onAddExpense,
           </div>
         </motion.div>
       )}
+
+      {/* Filters */}
+      <motion.div
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="bg-white rounded-xl shadow-sm border border-gray-200 p-4"
+      >
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2 text-gray-600">
+            <Filter size={18} />
+            <span className="text-sm font-medium">{t('common.filters', 'Filters')}:</span>
+          </div>
+
+          {/* Field Filter */}
+          <div className="relative">
+            <select
+              value={selectedFieldFilter}
+              onChange={(e) => setSelectedFieldFilter(e.target.value)}
+              className="pl-8 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500 appearance-none cursor-pointer min-w-[150px]"
+            >
+              <option value="">{t('expenses.allFields', 'All Fields')}</option>
+              {fields.map((field) => (
+                <option key={field.id} value={field.id}>
+                  {field.name}
+                </option>
+              ))}
+            </select>
+            <MapPin size={16} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+          </div>
+
+          {/* Category Filter */}
+          <div className="relative">
+            <select
+              value={selectedCategoryFilter}
+              onChange={(e) => setSelectedCategoryFilter(e.target.value as Expense['category'] | '')}
+              className="pl-8 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500 appearance-none cursor-pointer min-w-[150px]"
+            >
+              <option value="">{t('expenses.allCategories', 'All Categories')}</option>
+              <option value="seeds">{t('expenses.seeds', 'Seeds')}</option>
+              <option value="fertilizer">{t('expenses.fertilizer', 'Fertilizer')}</option>
+              <option value="pesticide">{t('expenses.pesticide', 'Pesticide')}</option>
+              <option value="labor">{t('expenses.labor', 'Labor')}</option>
+              <option value="equipment">{t('expenses.equipment', 'Equipment')}</option>
+              <option value="fuel">{t('expenses.fuel', 'Fuel')}</option>
+              <option value="other">{t('expenses.other', 'Other')}</option>
+            </select>
+            <Tag size={16} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+          </div>
+
+          {/* Clear Filters Button */}
+          {hasActiveFilters && (
+            <button
+              onClick={clearFilters}
+              className="flex items-center gap-1.5 px-3 py-2 text-sm text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors"
+            >
+              <X size={16} />
+              {t('common.clearFilters', 'Clear')}
+            </button>
+          )}
+
+          {/* Filter Summary */}
+          {hasActiveFilters && (
+            <div className="ml-auto text-sm text-gray-500">
+              {t('expenses.showingCount', 'Showing {{count}} of {{total}}', {
+                count: filteredExpenses.length,
+                total: expenses.length
+              })}
+            </div>
+          )}
+        </div>
+      </motion.div>
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
