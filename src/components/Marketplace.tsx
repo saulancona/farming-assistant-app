@@ -1,10 +1,11 @@
 import { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Edit2, Trash2, MapPin, Calendar, Package, X, Search, Eye, ShoppingCart, Truck, Phone, User, Upload, Image as ImageIcon, Filter, ChevronDown, LayoutGrid, Bookmark, Building2, ClipboardList } from 'lucide-react';
+import { Plus, Edit2, Trash2, MapPin, Calendar, Package, X, Search, Eye, ShoppingCart, Truck, Phone, User, Upload, Image as ImageIcon, Filter, ChevronDown, LayoutGrid, Bookmark, Building2, ClipboardList, AlertCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { useAuth } from '../contexts/AuthContext';
 import { useCart } from '../contexts/CartContext';
+import { useInventory } from '../hooks/useSupabaseData';
 import type { MarketplaceListing, Income, Order } from '../types';
 import * as db from '../services/database';
 import { getPreferredCurrency, formatPrice, convertBetweenCurrencies } from '../services/currency';
@@ -49,6 +50,17 @@ export default function Marketplace({ onAddIncome }: MarketplaceProps) {
   const [showCheckout, setShowCheckout] = useState(false);
   const [showOrderHistory, setShowOrderHistory] = useState(false);
   const [showSellerOrders, setShowSellerOrders] = useState(false);
+  const [selectedInventoryId, setSelectedInventoryId] = useState<string>('');
+
+  // Fetch user's inventory for product selection
+  const { data: inventoryItems = [] } = useInventory(user?.id);
+
+  // Filter inventory to show only sellable items (harvest category with quantity > 0)
+  const sellableInventory = useMemo(() => {
+    return inventoryItems.filter(item =>
+      item.category === 'harvest' && item.quantity > 0
+    );
+  }, [inventoryItems]);
 
   const [formData, setFormData] = useState<Omit<MarketplaceListing, 'id' | 'createdAt' | 'viewsCount' | 'isOwner' | 'userId' | 'userName'>>({
     categoryId: '',
@@ -189,6 +201,7 @@ export default function Marketplace({ onAddIncome }: MarketplaceProps) {
   const handleOpenModal = (listing?: MarketplaceListing) => {
     if (listing) {
       setEditingListing(listing);
+      setSelectedInventoryId(''); // Keep empty for editing - product already selected
       setFormData({
         categoryId: listing.categoryId || '',
         subcategoryId: listing.subcategoryId || '',
@@ -214,6 +227,7 @@ export default function Marketplace({ onAddIncome }: MarketplaceProps) {
       setImageUrls(listing.images || []);
     } else {
       setEditingListing(null);
+      setSelectedInventoryId('');
       setFormData({
         categoryId: '',
         subcategoryId: '',
@@ -245,6 +259,7 @@ export default function Marketplace({ onAddIncome }: MarketplaceProps) {
   const handleCloseModal = () => {
     setIsModalOpen(false);
     setEditingListing(null);
+    setSelectedInventoryId('');
     setImageUrls([]);
     setImageUrlInput('');
   };
@@ -272,8 +287,20 @@ export default function Marketplace({ onAddIncome }: MarketplaceProps) {
       return;
     }
 
+    // For new listings, require inventory selection
+    if (!editingListing && !selectedInventoryId) {
+      toast.error('Please select a product from your inventory');
+      return;
+    }
+
+    // Mandatory photo validation
+    if (imageUrls.length === 0) {
+      toast.error('At least one photo is required to create a listing');
+      return;
+    }
+
     // Validate required fields
-    if (!formData.categoryId || !formData.subcategoryId || !formData.productName || !formData.location || formData.quantity <= 0 || formData.pricePerUnit <= 0) {
+    if (!formData.productName || !formData.location || formData.quantity <= 0 || formData.pricePerUnit <= 0) {
       toast.error('Please fill in all required fields with valid values');
       return;
     }
@@ -1079,346 +1106,428 @@ export default function Marketplace({ onAddIncome }: MarketplaceProps) {
                 </div>
 
                 <form onSubmit={handleSubmit} className="space-y-4 max-h-[70vh] overflow-y-auto pr-2">
-                  {/* Category Selection */}
-                  <div className="grid grid-cols-2 gap-4">
+                  {/* Inventory Selection - Required for new listings */}
+                  {!editingListing && (
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Category *
+                        Select Product from Inventory *
                       </label>
-                      <select
-                        required
-                        value={formData.categoryId}
-                        onChange={(e) => {
-                          const newCategoryId = e.target.value;
-                          setFormData({
-                            ...formData,
-                            categoryId: newCategoryId,
-                            subcategoryId: '',
-                            productName: '',
-                            unit: 'kg'
-                          });
-                        }}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                      >
-                        <option value="">Select category...</option>
-                        {PRODUCT_CATEGORIES.map(category => (
-                          <option key={category.id} value={category.id}>
-                            {category.icon} {category.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Product Type *
-                      </label>
-                      <select
-                        required
-                        value={formData.subcategoryId}
-                        onChange={(e) => {
-                          const newSubcategoryId = e.target.value;
-                          const subcategory = getSubcategoryById(formData.categoryId, newSubcategoryId);
-                          setFormData({
-                            ...formData,
-                            subcategoryId: newSubcategoryId,
-                            productName: subcategory?.name || '',
-                            unit: subcategory?.typicalUnits?.[0] as any || 'kg'
-                          });
-                        }}
-                        disabled={!formData.categoryId}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 disabled:bg-gray-100"
-                      >
-                        <option value="">Select product type...</option>
-                        {availableSubcategories.map(sub => (
-                          <option key={sub.id} value={sub.id}>
-                            {sub.icon || ''} {sub.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Product Name and Variety */}
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Product Name *
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        value={formData.productName}
-                        onChange={(e) => setFormData({ ...formData, productName: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                        placeholder="e.g., White Maize, Arabica Coffee"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Variety
-                      </label>
-                      {commonVarieties.length > 0 ? (
-                        <select
-                          value={formData.variety}
-                          onChange={(e) => setFormData({ ...formData, variety: e.target.value })}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                        >
-                          <option value="">Select variety...</option>
-                          {commonVarieties.map(variety => (
-                            <option key={variety} value={variety}>{variety}</option>
-                          ))}
-                          <option value="other">Other (specify in description)</option>
-                        </select>
+                      {sellableInventory.length === 0 ? (
+                        <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                          <div className="flex items-start gap-3">
+                            <AlertCircle className="text-amber-600 flex-shrink-0 mt-0.5" size={20} />
+                            <div>
+                              <p className="text-amber-800 font-medium">No harvest items in inventory</p>
+                              <p className="text-amber-700 text-sm mt-1">
+                                You need to add harvest items to your inventory before creating a marketplace listing.
+                                Go to the Inventory page and add items with category "Harvest".
+                              </p>
+                            </div>
+                          </div>
+                        </div>
                       ) : (
-                        <input
-                          type="text"
-                          value={formData.variety}
-                          onChange={(e) => setFormData({ ...formData, variety: e.target.value })}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                          placeholder="e.g., Hybrid 516, Robusta"
-                        />
-                      )}
-                    </div>
-                  </div>
+                        <select
+                          required
+                          value={selectedInventoryId}
+                          onChange={(e) => {
+                            const inventoryId = e.target.value;
+                            setSelectedInventoryId(inventoryId);
 
-                  {/* Quantity and Unit */}
-                  <div className="grid grid-cols-3 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Quantity *
-                      </label>
-                      <input
-                        type="number"
-                        required
-                        min="0"
-                        step="0.01"
-                        value={formData.quantity}
-                        onChange={(e) => setFormData({ ...formData, quantity: parseFloat(e.target.value) || 0 })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Unit *
-                      </label>
-                      <select
-                        value={formData.unit}
-                        onChange={(e) => setFormData({ ...formData, unit: e.target.value as any })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                      >
-                        {availableUnits.map(unit => (
-                          <option key={unit.id} value={unit.id}>{unit.name} ({unit.abbr})</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Price per {formData.unit} (KES) *
-                      </label>
-                      <input
-                        type="number"
-                        required
-                        min="0"
-                        step="0.01"
-                        value={formData.pricePerUnit}
-                        onChange={(e) => setFormData({ ...formData, pricePerUnit: parseFloat(e.target.value) || 0 })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Total Price: {formatPrice(formData.totalPrice, 'KES')}
-                    </label>
-                    <p className="text-xs text-gray-500">Prices are listed in KES and will be converted for display in other currencies</p>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Quality Grade *
-                    </label>
-                    <select
-                      value={formData.quality}
-                      onChange={(e) => setFormData({ ...formData, quality: e.target.value as any })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                    >
-                      {Object.entries(QUALITY_GRADES).map(([id, grade]) => (
-                        <option key={id} value={id}>{grade.name} - {grade.description}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Harvest Date *
-                      </label>
-                      <input
-                        type="date"
-                        required
-                        value={formData.harvestDate}
-                        onChange={(e) => setFormData({ ...formData, harvestDate: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Available From *
-                      </label>
-                      <input
-                        type="date"
-                        required
-                        value={formData.availableFrom}
-                        onChange={(e) => setFormData({ ...formData, availableFrom: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Location *
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={formData.location}
-                      onChange={(e) => setFormData({ ...formData, location: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                      placeholder="e.g., Nairobi, Kenya"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Contact Information (optional)
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.userContact}
-                      onChange={(e) => setFormData({ ...formData, userContact: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                      placeholder="Phone number or email"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Description (optional)
-                    </label>
-                    <textarea
-                      rows={3}
-                      value={formData.description}
-                      onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                      placeholder="Additional details about the produce..."
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Product Images (optional)
-                    </label>
-                    <div className="space-y-3">
-                      {/* Image URL Input */}
-                      <div className="flex gap-2">
-                        <input
-                          type="url"
-                          value={imageUrlInput}
-                          onChange={(e) => setImageUrlInput(e.target.value)}
-                          onKeyPress={(e) => {
-                            if (e.key === 'Enter') {
-                              e.preventDefault();
-                              handleAddImageUrl();
+                            // Find the selected inventory item and auto-populate form
+                            const selectedItem = sellableInventory.find(item => item.id === inventoryId);
+                            if (selectedItem) {
+                              setFormData({
+                                ...formData,
+                                categoryId: 'crops', // Default to crops category for harvest items
+                                subcategoryId: '',
+                                productName: selectedItem.name,
+                                variety: '',
+                                quantity: selectedItem.quantity,
+                                unit: selectedItem.unit as any,
+                                harvestDate: selectedItem.harvestDate || format(new Date(), 'yyyy-MM-dd'),
+                              });
                             }
                           }}
-                          className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                          placeholder="Enter image URL (e.g., https://example.com/image.jpg)"
-                        />
-                        <button
-                          type="button"
-                          onClick={handleAddImageUrl}
-                          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
                         >
-                          <Upload size={16} />
-                          Add
-                        </button>
-                      </div>
-
-                      {/* Image Preview Grid */}
-                      {imageUrls.length > 0 && (
-                        <div className="grid grid-cols-3 gap-3">
-                          {imageUrls.map((url, index) => (
-                            <div key={index} className="relative group">
-                              <img
-                                src={url}
-                                alt={`Product ${index + 1}`}
-                                className="w-full h-24 object-cover rounded-lg border-2 border-gray-200"
-                                onError={(e) => {
-                                  e.currentTarget.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100"%3E%3Crect fill="%23ddd" width="100" height="100"/%3E%3Ctext fill="%23999" x="50%25" y="50%25" text-anchor="middle" dy=".3em"%3ENo Image%3C/text%3E%3C/svg%3E';
-                                }}
-                              />
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveImage(index)}
-                                className="absolute top-1 right-1 bg-red-600 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                              >
-                                <X size={14} />
-                              </button>
-                            </div>
+                          <option value="">Select a product from your inventory...</option>
+                          {sellableInventory.map(item => (
+                            <option key={item.id} value={item.id}>
+                              {item.name} - {item.quantity} {item.unit} available
+                              {item.harvestDate ? ` (Harvested: ${format(new Date(item.harvestDate), 'MMM d, yyyy')})` : ''}
+                            </option>
                           ))}
-                        </div>
+                        </select>
                       )}
+                    </div>
+                  )}
 
-                      <p className="text-xs text-gray-500">
-                        <ImageIcon size={12} className="inline mr-1" />
-                        Add up to 5 images. Use image hosting services like Imgur, Cloudinary, or your own server.
+                  {/* Show selected inventory item info */}
+                  {!editingListing && selectedInventoryId && (
+                    <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                      <p className="text-green-800 text-sm font-medium">
+                        Selected: {sellableInventory.find(i => i.id === selectedInventoryId)?.name}
+                      </p>
+                      <p className="text-green-700 text-xs mt-1">
+                        Available quantity: {sellableInventory.find(i => i.id === selectedInventoryId)?.quantity} {sellableInventory.find(i => i.id === selectedInventoryId)?.unit}
                       </p>
                     </div>
-                  </div>
+                  )}
 
-                  {/* Minimum Order & Delivery */}
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Minimum Order ({formData.unit})
-                      </label>
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={formData.minimumOrder || ''}
-                        onChange={(e) => setFormData({ ...formData, minimumOrder: parseFloat(e.target.value) || undefined })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                        placeholder="No minimum"
-                      />
-                      <p className="text-xs text-gray-500 mt-1">Leave empty for no minimum order</p>
+                  {/* Category Selection - Only shown for editing existing listings */}
+                  {editingListing && (
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Category
+                        </label>
+                        <select
+                          value={formData.categoryId}
+                          onChange={(e) => {
+                            const newCategoryId = e.target.value;
+                            setFormData({
+                              ...formData,
+                              categoryId: newCategoryId,
+                              subcategoryId: '',
+                            });
+                          }}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                        >
+                          <option value="">Select category...</option>
+                          {PRODUCT_CATEGORIES.map(category => (
+                            <option key={category.id} value={category.id}>
+                              {category.icon} {category.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Product Type
+                        </label>
+                        <select
+                          value={formData.subcategoryId}
+                          onChange={(e) => {
+                            const newSubcategoryId = e.target.value;
+                            setFormData({
+                              ...formData,
+                              subcategoryId: newSubcategoryId,
+                            });
+                          }}
+                          disabled={!formData.categoryId}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 disabled:bg-gray-100"
+                        >
+                          <option value="">Select product type...</option>
+                          {availableSubcategories.map(sub => (
+                            <option key={sub.id} value={sub.id}>
+                              {sub.icon || ''} {sub.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
                     </div>
-                    <div className="flex flex-col justify-center">
-                      <label className="flex items-center gap-2">
+                  )}
+
+                  {/* Product Name and Variety - shown when inventory selected or editing */}
+                  {(editingListing || selectedInventoryId) && (
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Product Name *
+                        </label>
                         <input
-                          type="checkbox"
-                          checked={formData.deliveryAvailable}
-                          onChange={(e) => setFormData({ ...formData, deliveryAvailable: e.target.checked })}
-                          className="rounded border-gray-300 text-green-600 focus:ring-green-500"
+                          type="text"
+                          required
+                          value={formData.productName}
+                          onChange={(e) => setFormData({ ...formData, productName: e.target.value })}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                          placeholder="e.g., White Maize, Arabica Coffee"
                         />
-                        <span className="text-sm text-gray-700">Delivery Available</span>
-                      </label>
-                      {formData.deliveryAvailable && (
-                        <div className="flex items-center gap-2 mt-2">
-                          <label className="text-sm text-gray-700">Radius (km):</label>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Variety
+                        </label>
+                        {commonVarieties.length > 0 ? (
+                          <select
+                            value={formData.variety}
+                            onChange={(e) => setFormData({ ...formData, variety: e.target.value })}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                          >
+                            <option value="">Select variety...</option>
+                            {commonVarieties.map(variety => (
+                              <option key={variety} value={variety}>{variety}</option>
+                            ))}
+                            <option value="other">Other (specify in description)</option>
+                          </select>
+                        ) : (
+                          <input
+                            type="text"
+                            value={formData.variety}
+                            onChange={(e) => setFormData({ ...formData, variety: e.target.value })}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                            placeholder="e.g., Hybrid 516, Robusta"
+                          />
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Rest of form - only show when inventory selected or editing */}
+                  {(editingListing || selectedInventoryId) && (
+                    <>
+                      {/* Quantity and Unit */}
+                      <div className="grid grid-cols-3 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Quantity *
+                          </label>
                           <input
                             type="number"
+                            required
                             min="0"
-                            value={formData.deliveryRadius || ''}
-                            onChange={(e) => setFormData({ ...formData, deliveryRadius: parseInt(e.target.value) || undefined })}
-                            className="w-20 px-3 py-1 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                            step="0.01"
+                            value={formData.quantity}
+                            onChange={(e) => setFormData({ ...formData, quantity: parseFloat(e.target.value) || 0 })}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
                           />
                         </div>
-                      )}
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Unit *
+                          </label>
+                          <select
+                            value={formData.unit}
+                            onChange={(e) => setFormData({ ...formData, unit: e.target.value as any })}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                          >
+                            {availableUnits.map(unit => (
+                              <option key={unit.id} value={unit.id}>{unit.name} ({unit.abbr})</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Price per {formData.unit} (KES) *
+                          </label>
+                          <input
+                            type="number"
+                            required
+                            min="0"
+                            step="0.01"
+                            value={formData.pricePerUnit}
+                            onChange={(e) => setFormData({ ...formData, pricePerUnit: parseFloat(e.target.value) || 0 })}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Total Price: {formatPrice(formData.totalPrice, 'KES')}
+                        </label>
+                        <p className="text-xs text-gray-500">Prices are listed in KES and will be converted for display in other currencies</p>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Quality Grade *
+                        </label>
+                        <select
+                          value={formData.quality}
+                          onChange={(e) => setFormData({ ...formData, quality: e.target.value as any })}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                        >
+                          {Object.entries(QUALITY_GRADES).map(([id, grade]) => (
+                            <option key={id} value={id}>{grade.name} - {grade.description}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Harvest Date *
+                          </label>
+                          <input
+                            type="date"
+                            required
+                            value={formData.harvestDate}
+                            onChange={(e) => setFormData({ ...formData, harvestDate: e.target.value })}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Available From *
+                          </label>
+                          <input
+                            type="date"
+                            required
+                            value={formData.availableFrom}
+                            onChange={(e) => setFormData({ ...formData, availableFrom: e.target.value })}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Location *
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={formData.location}
+                          onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                          placeholder="e.g., Nairobi, Kenya"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Contact Information (optional)
+                        </label>
+                        <input
+                          type="text"
+                          value={formData.userContact}
+                          onChange={(e) => setFormData({ ...formData, userContact: e.target.value })}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                          placeholder="Phone number or email"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Description (optional)
+                        </label>
+                        <textarea
+                          rows={3}
+                          value={formData.description}
+                          onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                          placeholder="Additional details about the produce..."
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Product Images * <span className="text-red-500 font-normal">(Required - at least 1 photo)</span>
+                        </label>
+                        <div className="space-y-3">
+                          {/* No images warning */}
+                          {imageUrls.length === 0 && (
+                            <div className="p-3 bg-red-50 border border-red-200 rounded-lg flex items-start gap-2">
+                              <AlertCircle className="text-red-500 flex-shrink-0 mt-0.5" size={16} />
+                              <p className="text-red-700 text-sm">
+                                At least one photo is required to create a listing. Add a photo URL below.
+                              </p>
+                            </div>
+                          )}
+
+                          {/* Image URL Input */}
+                          <div className="flex gap-2">
+                            <input
+                              type="url"
+                              value={imageUrlInput}
+                              onChange={(e) => setImageUrlInput(e.target.value)}
+                              onKeyPress={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  handleAddImageUrl();
+                                }
+                              }}
+                              className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                              placeholder="Enter image URL (e.g., https://example.com/image.jpg)"
+                            />
+                            <button
+                              type="button"
+                              onClick={handleAddImageUrl}
+                              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
+                            >
+                              <Upload size={16} />
+                              Add
+                            </button>
+                          </div>
+
+                          {/* Image Preview Grid */}
+                          {imageUrls.length > 0 && (
+                            <div className="grid grid-cols-3 gap-3">
+                              {imageUrls.map((url, index) => (
+                                <div key={index} className="relative group">
+                                  <img
+                                    src={url}
+                                    alt={`Product ${index + 1}`}
+                                    className="w-full h-24 object-cover rounded-lg border-2 border-gray-200"
+                                    onError={(e) => {
+                                      e.currentTarget.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100"%3E%3Crect fill="%23ddd" width="100" height="100"/%3E%3Ctext fill="%23999" x="50%25" y="50%25" text-anchor="middle" dy=".3em"%3ENo Image%3C/text%3E%3C/svg%3E';
+                                    }}
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemoveImage(index)}
+                                    className="absolute top-1 right-1 bg-red-600 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                                  >
+                                    <X size={14} />
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          <p className="text-xs text-gray-500">
+                            <ImageIcon size={12} className="inline mr-1" />
+                            Add up to 5 images. Use image hosting services like Imgur, Cloudinary, or your own server.
+                          </p>
+                        </div>
+                      </div>
+                    </>
+                  )}
+
+                  {/* Minimum Order & Delivery - only show when inventory selected or editing */}
+                  {(editingListing || selectedInventoryId) && (
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Minimum Order ({formData.unit})
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={formData.minimumOrder || ''}
+                          onChange={(e) => setFormData({ ...formData, minimumOrder: parseFloat(e.target.value) || undefined })}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                          placeholder="No minimum"
+                        />
+                        <p className="text-xs text-gray-500 mt-1">Leave empty for no minimum order</p>
+                      </div>
+                      <div className="flex flex-col justify-center">
+                        <label className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={formData.deliveryAvailable}
+                            onChange={(e) => setFormData({ ...formData, deliveryAvailable: e.target.checked })}
+                            className="rounded border-gray-300 text-green-600 focus:ring-green-500"
+                          />
+                          <span className="text-sm text-gray-700">Delivery Available</span>
+                        </label>
+                        {formData.deliveryAvailable && (
+                          <div className="flex items-center gap-2 mt-2">
+                            <label className="text-sm text-gray-700">Radius (km):</label>
+                            <input
+                              type="number"
+                              min="0"
+                              value={formData.deliveryRadius || ''}
+                              onChange={(e) => setFormData({ ...formData, deliveryRadius: parseInt(e.target.value) || undefined })}
+                              className="w-20 px-3 py-1 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                            />
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </div>
+                  )}
 
                   <div className="flex gap-3 pt-4">
                     <button
@@ -1430,7 +1539,8 @@ export default function Marketplace({ onAddIncome }: MarketplaceProps) {
                     </button>
                     <button
                       type="submit"
-                      className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                      disabled={!editingListing && (!selectedInventoryId || sellableInventory.length === 0)}
+                      className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
                     >
                       {editingListing ? 'Update Listing' : 'Create Listing'}
                     </button>
