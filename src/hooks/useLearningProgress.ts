@@ -372,39 +372,46 @@ export function useMarkArticleComplete() {
     mutationFn: async ({ userId, articleId }: { userId: string; articleId: string }) => {
       console.log('Starting article completion for:', { userId, articleId });
 
-      // Try using the new RPC function first (handles everything server-side)
-      try {
-        const { data: rpcResult, error: rpcError } = await supabase.rpc('mark_article_complete', {
-          p_user_id: userId,
-          p_article_id: articleId,
-        });
-
-        console.log('RPC result:', rpcResult, 'error:', rpcError);
-
-        // If RPC succeeded, return the result
-        if (!rpcError && rpcResult?.success) {
-          console.log('RPC succeeded, returning result');
-          return toCamelCase(rpcResult.article_progress) as ArticleProgress;
-        }
-
-        // Log the RPC error for debugging
-        if (rpcError) {
-          console.warn('RPC mark_article_complete error:', rpcError.message, rpcError.code, rpcError.details);
-        }
-      } catch (rpcException) {
-        console.warn('RPC mark_article_complete exception:', rpcException);
-      }
-
-      // Fallback: If RPC doesn't exist or failed, do it directly
-      console.log('Using fallback method for article completion');
-
       const now = new Date().toISOString();
 
-      // Use upsert for simplicity - include created_at for new rows
-      const { data, error } = await supabase
+      // First, check if a record already exists
+      const { data: existing } = await supabase
         .from('article_progress')
-        .upsert(
-          {
+        .select('*')
+        .eq('user_id', userId)
+        .eq('article_id', articleId)
+        .single();
+
+      let result;
+
+      if (existing) {
+        // Update existing record
+        console.log('Updating existing article progress');
+        const { data, error } = await supabase
+          .from('article_progress')
+          .update({
+            scroll_percentage: 100,
+            completed: true,
+            completed_at: existing.completed_at || now,
+            last_read_at: now,
+            updated_at: now,
+          })
+          .eq('user_id', userId)
+          .eq('article_id', articleId)
+          .select()
+          .single();
+
+        if (error) {
+          console.error('Error updating article progress:', error);
+          throw new Error(`Failed to update article progress: ${error.message}`);
+        }
+        result = data;
+      } else {
+        // Insert new record
+        console.log('Inserting new article progress');
+        const { data, error } = await supabase
+          .from('article_progress')
+          .insert({
             user_id: userId,
             article_id: articleId,
             reading_time_seconds: 0,
@@ -414,18 +421,18 @@ export function useMarkArticleComplete() {
             last_read_at: now,
             created_at: now,
             updated_at: now,
-          },
-          { onConflict: 'user_id,article_id', ignoreDuplicates: false }
-        )
-        .select()
-        .single();
+          })
+          .select()
+          .single();
 
-      if (error) {
-        console.error('Error saving article progress:', error.message, error.code, error.details, error.hint);
-        throw new Error(`Failed to save article progress: ${error.message}`);
+        if (error) {
+          console.error('Error inserting article progress:', error);
+          throw new Error(`Failed to insert article progress: ${error.message}`);
+        }
+        result = data;
       }
 
-      console.log('Fallback upsert succeeded:', data);
+      console.log('Article progress saved:', result);
 
       // Try to award XP (don't fail if this fails)
       try {
@@ -436,6 +443,7 @@ export function useMarkArticleComplete() {
           p_xp_amount: 20,
           p_metadata: { article_id: articleId }
         });
+        console.log('XP awarded successfully');
       } catch (xpError) {
         console.warn('Failed to award XP:', xpError);
       }
@@ -447,6 +455,7 @@ export function useMarkArticleComplete() {
           p_stat_field: 'articles_completed',
           p_increment: 1
         });
+        console.log('Stat incremented successfully');
       } catch (statError) {
         console.warn('Failed to increment stat:', statError);
       }
@@ -454,11 +463,12 @@ export function useMarkArticleComplete() {
       // Try to update weekly challenge progress (don't fail if this fails)
       try {
         await updateLearningChallengeProgress(userId);
+        console.log('Challenge progress updated');
       } catch (challengeError) {
         console.warn('Failed to update challenge progress:', challengeError);
       }
 
-      return toCamelCase(data) as ArticleProgress;
+      return toCamelCase(result) as ArticleProgress;
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['articleProgress', variables.userId] });
