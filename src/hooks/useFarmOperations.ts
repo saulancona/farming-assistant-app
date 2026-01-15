@@ -190,8 +190,20 @@ export function useFarmOperations() {
 
   const updateTask = async (id: string, updates: Partial<Task>) => {
     try {
-      await db.updateTask(id, updates);
+      // If marking task as completed, set completedAt timestamp
+      const finalUpdates = { ...updates };
+      if (updates.status === 'completed' && !updates.completedAt) {
+        finalUpdates.completedAt = new Date().toISOString();
+      }
+      // If un-completing a task, clear completedAt
+      if (updates.status && updates.status !== 'completed') {
+        finalUpdates.completedAt = undefined;
+      }
+
+      await db.updateTask(id, finalUpdates);
       queryClient.invalidateQueries({ queryKey: ['tasks', userId] });
+      // Invalidate calendar activities to show the completed task
+      queryClient.invalidateQueries({ queryKey: ['calendarActivities', userId] });
 
       // Record task completion activity for streak tracking
       if (updates.status === 'completed' && userId) {
